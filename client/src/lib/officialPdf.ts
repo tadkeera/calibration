@@ -47,6 +47,22 @@ const testTranslations: Record<string, string> = {
   "معامل ارتباط الخطية R": "Linearity correlation factor R",
   "الدوران البصري النوعي": "Specific optical rotation",
   "سرعة الدورات": "Number of cycles per minute",
+  "ماء مقطر": "Distilled Water",
+  "كحول أيزوبروبيلي": "Isopropyl Alcohol",
+  "ثنائي كلورو ميثان": "Dichloromethane",
+  "جليسرين": "Glycerin",
+  "بنزالدهيد": "Benzaldehyde",
+  "المركز": "Centre",
+  "مركز": "Centre",
+  "ركن": "Corner",
+  "من القراءة الأولى": "from the first reading",
+  "قراءة": "Reading",
+  "حرارة الحمام المائي الفعلية": "Actual water bath temperature",
+  "أعلى ترنح": "Maximum wobble",
+  "متوسط حرارة الأوعية": "Mean vessel temperature",
+  "انحراف Span": "Span deviation",
+  "الميل": "Slope",
+  "نقطة التقاطع": "Intercept",
 };
 
 const transliteration: Record<string, string> = { "ا": "a", "أ": "a", "إ": "i", "آ": "aa", "ب": "b", "ت": "t", "ث": "th", "ج": "j", "ح": "h", "خ": "kh", "د": "d", "ذ": "dh", "ر": "r", "ز": "z", "س": "s", "ش": "sh", "ص": "s", "ض": "d", "ط": "t", "ظ": "z", "ع": "a", "غ": "gh", "ف": "f", "ق": "q", "ك": "k", "ل": "l", "م": "m", "ن": "n", "ه": "h", "و": "w", "ي": "y", "ى": "a", "ة": "a", "ئ": "y", "ؤ": "w", "ء": "", "ـ": "" };
@@ -116,6 +132,20 @@ function genericResultTable(doc: jsPDF, result: CalibrationResult, y: number) {
   return rowY + 3;
 }
 
+type ReportSection = { title: string; patterns: string[] };
+
+function sectionedResultTables(doc: jsPDF, result: CalibrationResult, y: number, sections: ReportSection[]) {
+  const remaining = [...result.rows];
+  sections.forEach((section) => {
+    const rows = remaining.filter((row) => section.patterns.some((pattern) => row.test.includes(pattern)));
+    if (!rows.length) return;
+    rows.forEach((row) => remaining.splice(remaining.indexOf(row), 1));
+    y = genericResultTable(doc, { ...result, rows }, sectionTitle(doc, section.title, y + 4));
+  });
+  if (remaining.length) y = genericResultTable(doc, { ...result, rows: remaining }, sectionTitle(doc, "Additional Validation Results", y + 4));
+  return y;
+}
+
 type ReportChart = { title: string; xLabel: string; yLabel: string; data: { label: string; value: number; reference?: number }[] };
 
 function drawReportChart(doc: jsPDF, chart: ReportChart, x: number, y: number, width = 190, height = 57) {
@@ -138,7 +168,7 @@ function drawReportChart(doc: jsPDF, chart: ReportChart, x: number, y: number, w
   return y + height + 4;
 }
 
-function genericLayout(doc: jsPDF, input: OfficialPdfInput, y: number) {
+function genericLayout(doc: jsPDF, input: OfficialPdfInput, y: number, headerImage: string) {
   const sectionNames: Record<string, string> = {
     disintegration: "Temperature, Time Accuracy & Number of Cycle Tests",
     refractometer: "Calibration & Verification Tests",
@@ -148,12 +178,54 @@ function genericLayout(doc: jsPDF, input: OfficialPdfInput, y: number) {
     moisture: "Span, Reproducibility, Off-center Load & Linearity Tests",
     viscometer: "Viscosity Standards & Linearity Test",
   };
-  let endY = genericResultTable(doc, input.result, sectionTitle(doc, sectionNames[input.device.key] ?? "Validation Test Results", y + 4));
+  const sections: Partial<Record<string, ReportSection[]>> = {
+    disintegration: [
+      { title: "Temperature Test", patterns: ["حرارة الحمام"] },
+      { title: "Temperature of Medium", patterns: ["حرارة وسط التفكك"] },
+      { title: "Time Accuracy Test", patterns: ["دقة التوقيت"] },
+      { title: "Number of Cycle Test", patterns: ["سرعة الدورات"] },
+    ],
+    refractometer: [
+      { title: "Calibration Test", patterns: ["معايرة الصفر", "معايرة المدى"] },
+      { title: "Verification Test", patterns: ["تحقق:"] },
+      { title: "Linearity Test", patterns: ["معامل ارتباط"] },
+    ],
+    dissolution: [
+      { title: "Temperature Test", patterns: ["حرارة"] },
+      { title: "Stirring Test", patterns: ["سرعة التحريك"] },
+      { title: "Basket Stirrer Shaft Wobble Test", patterns: ["ترنح عمود السلة"] },
+      { title: "Paddle Stirrer Shaft Wobble Test", patterns: ["ترنح عمود المجداف"] },
+    ],
+    spectrophotometer: [
+      { title: "Control of Wavelengths", patterns: ["دقة طول موجة"] },
+      { title: "Control of Absorbance", patterns: ["الامتصاصية النوعية"] },
+      { title: "Validation Performance Test", patterns: ["دقة طول الموجة"] },
+      { title: "Limit of Stray Light & Linearity", patterns: ["اختبار الضوء الشارد", "معامل ارتباط"] },
+    ],
+    moisture: [
+      { title: "Span Calibration Test", patterns: ["معايرة Span"] },
+      { title: "Reproducibility Test", patterns: ["التكرارية"] },
+      { title: "Off-center Load Test", patterns: ["الحمل اللامركزي"] },
+      { title: "Linearity Test", patterns: ["معامل ارتباط"] },
+    ],
+    viscometer: [
+      { title: "Viscosity Standards", patterns: ["لزوجة قياسية"] },
+      { title: "Linearity Test", patterns: ["معامل ارتباط"] },
+    ],
+  };
+  let endY = sections[input.device.key] ? sectionedResultTables(doc, input.result, y, sections[input.device.key]!) : genericResultTable(doc, input.result, sectionTitle(doc, sectionNames[input.device.key] ?? "Validation Test Results", y + 4));
   if (input.device.key === "hplc" && input.result.reportCharts?.length) {
     input.result.reportCharts.forEach((chart) => { endY = drawReportChart(doc, chart, 10, endY, 190, 36); });
   } else if (input.result.chart && ["refractometer", "spectrophotometer", "moisture", "viscometer"].includes(input.device.key)) {
     const chartLabels: Record<string, [string, string, string]> = { refractometer: ["Linearity Test", "Nominal RI", "Actual RI"], spectrophotometer: ["Linearity Test", "Concentration", "Absorbance"], moisture: ["Linearity Test", "Test weight", "Displayed weight"], viscometer: ["Linearity Test", "Nominal Viscosity", "Actual Viscosity"] };
     const [title, xLabel, yLabel] = chartLabels[input.device.key];
+    if (endY > 185) {
+      doc.addPage();
+      doc.setLineWidth(0.35); doc.rect(5, 5, 200, 287); doc.rect(5.8, 5.8, 198.4, 285.4);
+      doc.addImage(headerImage, "PNG", 8, 8, 194, 37.7);
+      doc.setFont("times", "bolditalic"); doc.setFontSize(12); doc.text("Validation Record — Continuation", 105, 52, { align: "center" });
+      endY = 62;
+    }
     endY = drawReportChart(doc, { title, xLabel, yLabel, data: input.result.chart }, 10, endY, 190, 57);
   }
   return endY;
@@ -244,7 +316,7 @@ export async function downloadOfficialPdf(input: OfficialPdfInput) {
   ];
   metadata.forEach((row, rowIndex) => row.forEach((value, columnIndex) => cell(doc, 10 + columns.slice(0, columnIndex).reduce((a, b) => a + b, 0), metaY + rowIndex * 6, columns[columnIndex], 6, value, { bold: columnIndex % 2 === 0, italic: columnIndex % 2 === 1, fontSize: 8 })));
   const contentStart = metaY + 22;
-  const endY = input.device.key === "polarimeter" ? polarimeterLayout(doc, input.result, contentStart) : genericLayout(doc, input, contentStart);
+  const endY = input.device.key === "polarimeter" ? polarimeterLayout(doc, input.result, contentStart) : genericLayout(doc, input, contentStart, headerImage);
   signatureBlock(doc, Math.min(263, Math.max(endY + 3, 262)), input);
   doc.save(`${input.device.english.replaceAll(" ", "_")}_Validation_Record.pdf`);
 }
