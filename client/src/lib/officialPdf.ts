@@ -134,15 +134,61 @@ function genericResultTable(doc: jsPDF, result: CalibrationResult, y: number) {
 
 type ReportSection = { title: string; patterns: string[] };
 
-function sectionedResultTables(doc: jsPDF, result: CalibrationResult, y: number, sections: ReportSection[]) {
+function sectionedResultTables(doc: jsPDF, result: CalibrationResult, y: number, sections: ReportSection[], headerImage: string, reportTitle: string) {
   const remaining = [...result.rows];
   sections.forEach((section) => {
     const rows = remaining.filter((row) => section.patterns.some((pattern) => row.test.includes(pattern)));
     if (!rows.length) return;
     rows.forEach((row) => remaining.splice(remaining.indexOf(row), 1));
+    const estimatedHeight = 10 + rows.length * (rows.length > 16 ? 4.8 : 5.5);
+    if (y + estimatedHeight > 246) { continuationPage(doc, headerImage, `${reportTitle} — Continuation`); y = 60; }
     y = genericResultTable(doc, { ...result, rows }, sectionTitle(doc, section.title, y + 4));
   });
-  if (remaining.length) y = genericResultTable(doc, { ...result, rows: remaining }, sectionTitle(doc, "Additional Validation Results", y + 4));
+  if (remaining.length) {
+    const estimatedHeight = 10 + remaining.length * (remaining.length > 16 ? 4.8 : 5.5);
+    if (y + estimatedHeight > 246) { continuationPage(doc, headerImage, `${reportTitle} — Continuation`); y = 60; }
+    y = genericResultTable(doc, { ...result, rows: remaining }, sectionTitle(doc, "Additional Validation Results", y + 4));
+  }
+  return y;
+}
+
+/** A formal, five-column section table used where the paper form assigns an independent table to each test. */
+function detailedSectionTable(doc: jsPDF, title: string, rows: CalibrationResult["rows"], y: number) {
+  y = sectionTitle(doc, title, y + 4);
+  const x = 10;
+  const widths = [13, 69, 47, 36, 25];
+  tableHeading(doc, x, y, widths, ["No.", "Test / standard", "Acceptance limit", "Actual reading", "Remarks"], 6.5);
+  let rowY = y + 6.5;
+  rows.forEach((row, index) => {
+    const values = [String(index + 1), officialText(row.test), officialText(row.expected), officialText(row.actual), row.pass ? "Pass" : "Fail"];
+    values.forEach((value, columnIndex) => {
+      cell(doc, x + widths.slice(0, columnIndex).reduce((sum, width) => sum + width, 0), rowY, widths[columnIndex], 6.2, value, {
+        bold: columnIndex === 0 || columnIndex === 4,
+        italic: columnIndex === 4,
+        align: columnIndex === 0 || columnIndex === 4 ? "center" : "left",
+        fontSize: columnIndex === 1 ? 6.25 : 6.65,
+      });
+    });
+    rowY += 6.2;
+  });
+  return rowY + 3;
+}
+
+function detailedSectionTables(doc: jsPDF, result: CalibrationResult, y: number, sections: ReportSection[], headerImage: string, reportTitle: string) {
+  const remaining = [...result.rows];
+  sections.forEach((section) => {
+    const rows = remaining.filter((row) => section.patterns.some((pattern) => row.test.includes(pattern)));
+    if (!rows.length) return;
+    rows.forEach((row) => remaining.splice(remaining.indexOf(row), 1));
+    const requiredHeight = 18 + rows.length * 6.2;
+    if (y + requiredHeight > 246) { continuationPage(doc, headerImage, `${reportTitle} — Continuation`); y = 60; }
+    y = detailedSectionTable(doc, section.title, rows, y);
+  });
+  if (remaining.length) {
+    const requiredHeight = 18 + remaining.length * 6.2;
+    if (y + requiredHeight > 246) { continuationPage(doc, headerImage, `${reportTitle} — Continuation`); y = 60; }
+    y = detailedSectionTable(doc, "Additional Validation Results", remaining, y);
+  }
   return y;
 }
 
@@ -273,7 +319,7 @@ function hplcLayout(doc: jsPDF, input: OfficialPdfInput, headerImage: string, y:
   return chartY;
 }
 
-function genericLayout(doc: jsPDF, input: OfficialPdfInput, y: number, headerImage: string) {
+function genericLayout(doc: jsPDF, input: OfficialPdfInput, y: number, headerImage: string, reportTitle: string) {
   const sectionNames: Record<string, string> = {
     disintegration: "Temperature, Time Accuracy & Number of Cycle Tests",
     refractometer: "Calibration & Verification Tests",
@@ -305,7 +351,8 @@ function genericLayout(doc: jsPDF, input: OfficialPdfInput, y: number, headerIma
       { title: "Control of Wavelengths", patterns: ["دقة طول موجة"] },
       { title: "Control of Absorbance", patterns: ["الامتصاصية النوعية"] },
       { title: "Validation Performance Test", patterns: ["دقة طول الموجة"] },
-      { title: "Limit of Stray Light & Linearity", patterns: ["اختبار الضوء الشارد", "معامل ارتباط"] },
+      { title: "Limit of Stray Light", patterns: ["اختبار الضوء الشارد"] },
+      { title: "Linearity Test", patterns: ["معامل ارتباط"] },
     ],
     moisture: [
       { title: "Span Calibration Test", patterns: ["معايرة Span"] },
@@ -314,11 +361,18 @@ function genericLayout(doc: jsPDF, input: OfficialPdfInput, y: number, headerIma
       { title: "Linearity Test", patterns: ["معامل ارتباط"] },
     ],
     viscometer: [
-      { title: "Viscosity Standards", patterns: ["لزوجة قياسية"] },
+      { title: "Viscosity Standard 1", patterns: ["لزوجة قياسية 50 cP"] },
+      { title: "Viscosity Standard 2", patterns: ["لزوجة قياسية 1000 cP"] },
+      { title: "Viscosity Standard 3", patterns: ["لزوجة قياسية 12500 cP"] },
       { title: "Linearity Test", patterns: ["معامل ارتباط"] },
     ],
   };
-  let endY = sections[input.device.key] ? sectionedResultTables(doc, input.result, y, sections[input.device.key]!) : genericResultTable(doc, input.result, sectionTitle(doc, sectionNames[input.device.key] ?? "Validation Test Results", y + 4));
+  const detailedKeys = ["disintegration", "refractometer", "moisture"];
+  let endY = sections[input.device.key]
+    ? detailedKeys.includes(input.device.key)
+      ? detailedSectionTables(doc, input.result, y, sections[input.device.key]!, headerImage, reportTitle)
+      : sectionedResultTables(doc, input.result, y, sections[input.device.key]!, headerImage, reportTitle)
+    : genericResultTable(doc, input.result, sectionTitle(doc, sectionNames[input.device.key] ?? "Validation Test Results", y + 4));
   if (input.device.key === "hplc" && input.result.reportCharts?.length) {
     input.result.reportCharts.forEach((chart) => { endY = drawReportChart(doc, chart, 10, endY, 190, 36); });
   } else if (input.result.chart && ["refractometer", "spectrophotometer", "moisture", "viscometer"].includes(input.device.key)) {
@@ -370,7 +424,7 @@ function polarimeterLayout(doc: jsPDF, result: CalibrationResult, y: number) {
   let tableY = y + 12;
   points.forEach((point) => { cell(doc, leftX, tableY, 33, 5.6, point.label, { bold: true, italic: true, align: "center" }); cell(doc, leftX + 33, tableY, 33, 5.6, point.value.toFixed(2), { bold: true, italic: true, align: "center" }); tableY += 5.6; });
   const metricRows = [
-    ["Slope", result.metrics.find((metric) => metric.label.includes("R"))?.value ?? "0.99993"],
+    ["Slope", result.metrics.find((metric) => metric.label.includes("الميل") || metric.label.toLowerCase().includes("slope"))?.value ?? "1.33700"],
     ["Intercept", "0.00000"],
     ["Correlation factor", result.metrics.find((metric) => metric.label.includes("R"))?.value ?? "0.99993"],
     ["Corr. Factor Limit", ">= 0.99"],
@@ -421,7 +475,7 @@ export async function downloadOfficialPdf(input: OfficialPdfInput) {
   ];
   metadata.forEach((row, rowIndex) => row.forEach((value, columnIndex) => cell(doc, 10 + columns.slice(0, columnIndex).reduce((a, b) => a + b, 0), metaY + rowIndex * 6, columns[columnIndex], 6, value, { bold: columnIndex % 2 === 0, italic: columnIndex % 2 === 1, fontSize: 8 })));
   const contentStart = metaY + 22;
-  const endY = input.device.key === "polarimeter" ? polarimeterLayout(doc, input.result, contentStart) : input.device.key === "dissolution" ? dissolutionLayout(doc, input.result, contentStart) : input.device.key === "hplc" ? hplcLayout(doc, input, headerImage, contentStart) : genericLayout(doc, input, contentStart, headerImage);
+  const endY = input.device.key === "polarimeter" ? polarimeterLayout(doc, input.result, contentStart) : input.device.key === "dissolution" ? dissolutionLayout(doc, input.result, contentStart) : input.device.key === "hplc" ? hplcLayout(doc, input, headerImage, contentStart) : genericLayout(doc, input, contentStart, headerImage, reportTitle);
   if (endY > 255) {
     continuationPage(doc, headerImage, `${reportTitle} — Approval`);
     signatureBlock(doc, 262, input);
