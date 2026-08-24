@@ -22,3 +22,11 @@ The Refractometer report was regenerated after the final template changes. It co
 All eight validation forms were exercised with their reference readings after the final template updates. The generated reports cover: Disintegration Tester (temperature, medium, time, cycles), Refractometer (calibration, verification, linearity), Dissolution Tester (temperature, stirring, basket and paddle wobble), HPLC2 Pump (three ten-sample flow curves), Spectrophotometer (wavelength, specific absorbance, stray light, linearity), Moisture Analyzer (span, reproducibility, off-center load, linearity), Polarimeter (accuracy, repeatability, optical-rotation linearity), and Rotational Viscometer (standards and linearity). The spectrophotometer specific-absorbance formula was corrected during this verification, turning the supplied reference readings from four false failures into 17/17 passing readings.
 
 The final Spectrophotometer PDF was reviewed as a two-page controlled record: page one contains only the official header and the four named result sections, while page two repeats the header and places the linearity chart above an independent approval block. This eliminates the earlier chart/signature overlap. The final Rotational Viscometer PDF was also visually reviewed and contains separate Viscosity Standards and Linearity Test sections, a readable chart, and a non-overlapping approval block.
+
+## Detailed HPLC layout verification
+
+The revised HPLC report now uses two controlled pages. The first page presents three separate compact tables—one each for 1.000, 1.500, and 2.000 ml/min—with all ten readings, Mean, Limit, Deviation, RSD, and an independent Pass/Fail result. The former overlapping combined-result cells have been removed. The second page carries the three separate flow-rate charts and the approval block, with sufficient vertical separation between every element.
+
+## Detailed dissolution layout verification
+
+The revised Dissolution Tester report uses the paper-form arrangement on a single page: a Temperature Test table with all six vessel readings, a distinct Stirring Test table, a dedicated water-bath table, and separate Basket and Paddle shaft-wobble tables. Each table retains its own limit and remarks column, and every one of the 24 reference readings is rendered without truncation or overlap.

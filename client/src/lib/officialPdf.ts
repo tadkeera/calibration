@@ -168,6 +168,111 @@ function drawReportChart(doc: jsPDF, chart: ReportChart, x: number, y: number, w
   return y + height + 4;
 }
 
+function numeric(value: string) {
+  const matched = value.match(/-?\d+(?:\.\d+)?/);
+  return matched ? Number(matched[0]) : 0;
+}
+
+function average(values: number[]) { return values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1); }
+function standardDeviation(values: number[]) {
+  if (values.length < 2) return 0;
+  const mean = average(values);
+  return Math.sqrt(values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / (values.length - 1));
+}
+
+function continuationPage(doc: jsPDF, headerImage: string, title: string) {
+  doc.addPage();
+  doc.setLineWidth(0.35); doc.rect(5, 5, 200, 287); doc.rect(5.8, 5.8, 198.4, 285.4);
+  doc.addImage(headerImage, "PNG", 8, 8, 194, 37.7);
+  doc.setFont("times", "bolditalic"); doc.setFontSize(12); doc.text(title, 105, 52, { align: "center" });
+}
+
+function tableHeading(doc: jsPDF, x: number, y: number, widths: number[], labels: string[], height = 7) {
+  labels.forEach((label, index) => cell(doc, x + widths.slice(0, index).reduce((sum, width) => sum + width, 0), y, widths[index], height, label, { bold: true, italic: true, align: "center", fontSize: 7.2 }));
+}
+
+function valueOrDash(row: CalibrationResult["rows"][number] | undefined, selector: "actual" | "expected") { return row ? officialText(row[selector]) : "—"; }
+
+function dissolutionLayout(doc: jsPDF, result: CalibrationResult, y: number) {
+  const bath = result.rows.find((row) => row.test === "حرارة الحمام المائي");
+  const vessels = result.rows.filter((row) => row.test.includes("حرارة الوعاء"));
+  const stirring = result.rows.filter((row) => row.test.includes("سرعة التحريك"));
+  const basket = result.rows.filter((row) => row.test.includes("ترنح عمود السلة"));
+  const paddle = result.rows.filter((row) => row.test.includes("ترنح عمود المجداف"));
+  const leftX = 10, rightX = 105, leftWidth = 88, rightWidth = 95;
+  const rowH = 5.25;
+
+  doc.setFont("times", "bolditalic"); doc.setFontSize(10.5); doc.text("Temperature Test", leftX + leftWidth / 2, y + 2, { align: "center" }); doc.text("Stirring Test", rightX + rightWidth / 2, y + 2, { align: "center" });
+  let leftY = y + 6, rightY = y + 6;
+  const tempWidths = [20, 24, 27, 17]; tableHeading(doc, leftX, leftY, tempWidths, ["Vessel\nNo.", "Actual\nTemp.", "Limit", "Remark"]); leftY += 7;
+  vessels.forEach((row, index) => {
+    cell(doc, leftX, leftY, tempWidths[0], rowH, String(index + 1), { bold: true, italic: true, align: "center", fontSize: 7.2 });
+    cell(doc, leftX + tempWidths[0], leftY, tempWidths[1], rowH, valueOrDash(row, "actual"), { align: "center", fontSize: 7.2 });
+    if (index === 0) cell(doc, leftX + tempWidths[0] + tempWidths[1], leftY, tempWidths[2], rowH * vessels.length, valueOrDash(row, "expected"), { italic: true, align: "center", fontSize: 6.5 });
+    cell(doc, leftX + tempWidths[0] + tempWidths[1] + tempWidths[2], leftY, tempWidths[3], rowH, row.pass ? "Pass" : "Fail", { bold: true, italic: true, align: "center", fontSize: 7 });
+    leftY += rowH;
+  });
+  leftY += 4; tableHeading(doc, leftX, leftY, [25, 23, 24, 16], ["Set Temp.\nof Water Bath", "Actual\nTemp.", "Limit", "Remarks"]); leftY += 7;
+  ["38", valueOrDash(bath, "actual"), valueOrDash(bath, "expected"), bath?.pass ? "Pass" : "Fail"].forEach((value, index) => cell(doc, leftX + [0, 25, 48, 72][index], leftY, [25, 23, 24, 16][index], 9, value, { bold: index === 3, italic: true, align: "center", fontSize: 6.6 }));
+  leftY += 13;
+
+  const stirWidths = [27, 24, 29, 15]; tableHeading(doc, rightX, rightY, stirWidths, ["Stirring\nSpeed", "Actual\nSpeed", "Limit\n(rpm)", "Remarks"]); rightY += 7;
+  stirring.forEach((row) => {
+    const speed = officialText(row.test).replace("Stirring speed ", "");
+    [speed, valueOrDash(row, "actual"), valueOrDash(row, "expected"), row.pass ? "Pass" : "Fail"].forEach((value, index) => cell(doc, rightX + stirWidths.slice(0, index).reduce((sum, width) => sum + width, 0), rightY, stirWidths[index], rowH + 0.8, value, { bold: index === 3, italic: index !== 1, align: "center", fontSize: 6.65 }));
+    rightY += rowH + 0.8;
+  });
+  rightY += 4;
+
+  const lowerY = Math.max(leftY, rightY) + 3;
+  doc.setFont("times", "bolditalic"); doc.setFontSize(10); doc.text("Basket stirrer shaft wobble Test", leftX + leftWidth / 2, lowerY, { align: "center" }); doc.text("Paddle stirrer shaft wobble Test", rightX + rightWidth / 2, lowerY, { align: "center" });
+  let basketY = lowerY + 4, paddleY = lowerY + 4;
+  const wobbleLeft = [25, 22, 25, 16], wobbleRight = [28, 23, 29, 15];
+  tableHeading(doc, leftX, basketY, wobbleLeft, ["Shaft No.", "Result", "Limit", "Remarks"]); basketY += 7;
+  basket.forEach((row, index) => {
+    const label = `Basket# ${index + 1}`;
+    cell(doc, leftX, basketY, wobbleLeft[0], rowH, label, { italic: true, align: "center", fontSize: 7 }); cell(doc, leftX + wobbleLeft[0], basketY, wobbleLeft[1], rowH, valueOrDash(row, "actual"), { align: "center", fontSize: 7 });
+    if (index === 0) cell(doc, leftX + wobbleLeft[0] + wobbleLeft[1], basketY, wobbleLeft[2], rowH * basket.length, valueOrDash(row, "expected"), { italic: true, align: "center", fontSize: 6.4 });
+    cell(doc, leftX + wobbleLeft[0] + wobbleLeft[1] + wobbleLeft[2], basketY, wobbleLeft[3], rowH, row.pass ? "Pass" : "Fail", { bold: true, italic: true, align: "center", fontSize: 7 }); basketY += rowH;
+  });
+  tableHeading(doc, rightX, paddleY, wobbleRight, ["Shaft No.", "Result", "Limit", "Remarks"]); paddleY += 7;
+  paddle.forEach((row, index) => {
+    const label = `Paddle# ${index + 1}`;
+    cell(doc, rightX, paddleY, wobbleRight[0], rowH, label, { italic: true, align: "center", fontSize: 7 }); cell(doc, rightX + wobbleRight[0], paddleY, wobbleRight[1], rowH, valueOrDash(row, "actual"), { align: "center", fontSize: 7 });
+    if (index === 0) cell(doc, rightX + wobbleRight[0] + wobbleRight[1], paddleY, wobbleRight[2], rowH * paddle.length, valueOrDash(row, "expected"), { italic: true, align: "center", fontSize: 6.4 });
+    cell(doc, rightX + wobbleRight[0] + wobbleRight[1] + wobbleRight[2], paddleY, wobbleRight[3], rowH, row.pass ? "Pass" : "Fail", { bold: true, italic: true, align: "center", fontSize: 7 }); paddleY += rowH;
+  });
+  return Math.max(basketY, paddleY) + 5;
+}
+
+function hplcLayout(doc: jsPDF, input: OfficialPdfInput, headerImage: string, y: number) {
+  const charts = input.result.reportCharts ?? [];
+  const resultRows = input.result.rows;
+  doc.setFont("times", "bolditalic"); doc.setFontSize(11); doc.text("Flow Rate Accuracy Results", 105, y + 3, { align: "center" });
+  const tableY = y + 7, panelWidth = 60, rowHeight = 4.35;
+  charts.forEach((chart, chartIndex) => {
+    const x = 10 + chartIndex * 62;
+    const row = resultRows[chartIndex];
+    const values = chart.data.map((point) => point.value); const mean = average(values); const deviation = Math.abs(mean - (chart.data[0]?.reference ?? mean)) / Math.max(chart.data[0]?.reference ?? mean, 0.0001) * 100; const rsd = standardDeviation(values) / Math.max(mean, 0.0001) * 100;
+    const setTitle = chart.title.replace("Set Flow ", "Set Flow\n");
+    tableHeading(doc, x, tableY, [9, 34, 17], ["No.", setTitle, "Result"], 9);
+    let currentY = tableY + 9;
+    values.forEach((value, index) => {
+      cell(doc, x, currentY, 9, rowHeight, String(index + 1), { italic: true, align: "center", fontSize: 6.8 });
+      cell(doc, x + 9, currentY, 34, rowHeight, value.toFixed(3), { bold: true, italic: true, align: "center", fontSize: 7 });
+      cell(doc, x + 43, currentY, 17, rowHeight, row?.pass ? "Pass" : "Fail", { bold: true, italic: true, align: "center", fontSize: 6.6 }); currentY += rowHeight;
+    });
+    const limit = (row?.expected ?? "—").split("|")[0].trim();
+    [["Mean", mean.toFixed(3)], ["Limit", officialText(limit)], ["Dev.", `${deviation.toFixed(3)}%`], ["RSD", `${rsd.toFixed(3)}%`]].forEach(([label, value]) => { cell(doc, x, currentY, 20, rowHeight, label, { bold: true, italic: true, align: "center", fontSize: 6.7 }); cell(doc, x + 20, currentY, 23, rowHeight, value, { italic: true, align: "center", fontSize: 6.6 }); cell(doc, x + 43, currentY, 17, rowHeight, row?.pass ? "Pass" : "Fail", { bold: true, italic: true, align: "center", fontSize: 6.3 }); currentY += rowHeight; });
+  });
+  const criteriaY = tableY + 9 + 10 * rowHeight + 4 * rowHeight + 3;
+  cell(doc, 10, criteriaY, 48, 6, "Acceptance Criteria", { bold: true, italic: true, align: "center", fontSize: 7.5 }); cell(doc, 58, criteriaY, 38, 6, "Dev. ≤ 3.0%", { italic: true, align: "center", fontSize: 7 }); cell(doc, 96, criteriaY, 38, 6, "RSD ≤ 2.0%", { italic: true, align: "center", fontSize: 7 });
+  continuationPage(doc, headerImage, "Flow Rate Accuracy Report — Charts");
+  let chartY = 61;
+  charts.forEach((chart) => { chartY = drawReportChart(doc, chart, 10, chartY, 190, 53); });
+  return chartY;
+}
+
 function genericLayout(doc: jsPDF, input: OfficialPdfInput, y: number, headerImage: string) {
   const sectionNames: Record<string, string> = {
     disintegration: "Temperature, Time Accuracy & Number of Cycle Tests",
@@ -316,7 +421,12 @@ export async function downloadOfficialPdf(input: OfficialPdfInput) {
   ];
   metadata.forEach((row, rowIndex) => row.forEach((value, columnIndex) => cell(doc, 10 + columns.slice(0, columnIndex).reduce((a, b) => a + b, 0), metaY + rowIndex * 6, columns[columnIndex], 6, value, { bold: columnIndex % 2 === 0, italic: columnIndex % 2 === 1, fontSize: 8 })));
   const contentStart = metaY + 22;
-  const endY = input.device.key === "polarimeter" ? polarimeterLayout(doc, input.result, contentStart) : genericLayout(doc, input, contentStart, headerImage);
-  signatureBlock(doc, Math.min(263, Math.max(endY + 3, 262)), input);
+  const endY = input.device.key === "polarimeter" ? polarimeterLayout(doc, input.result, contentStart) : input.device.key === "dissolution" ? dissolutionLayout(doc, input.result, contentStart) : input.device.key === "hplc" ? hplcLayout(doc, input, headerImage, contentStart) : genericLayout(doc, input, contentStart, headerImage);
+  if (endY > 255) {
+    continuationPage(doc, headerImage, `${reportTitle} — Approval`);
+    signatureBlock(doc, 262, input);
+  } else {
+    signatureBlock(doc, Math.max(endY + 3, 262), input);
+  }
   doc.save(`${input.device.english.replaceAll(" ", "_")}_Validation_Record.pdf`);
 }
