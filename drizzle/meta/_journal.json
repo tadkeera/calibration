@@ -15,6 +15,13 @@
       "when": 1787607423453,
       "tag": "0001_smooth_major_mapleleaf",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1787608966951,
+      "tag": "0002_real_wolfsbane",
+      "breakpoints": true
     }
   ]
 }

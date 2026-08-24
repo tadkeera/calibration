@@ -1,6 +1,6 @@
 import { desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { auditEvents, InsertUser, recordApprovals, users, validationRecords } from "../drizzle/schema";
+import { auditEvents, InsertUser, instrumentChangeEvents, instrumentProfiles, recordApprovals, users, validationRecords } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { createRecordSummary, decisionSummary, exportRecordSummary, updateRecordSummary } from "./validationUtils";
 
@@ -241,4 +241,54 @@ export async function getAuditTrail(recordId: number) {
     actorName: users.name,
     actorRole: users.role,
   }).from(auditEvents).leftJoin(users, eq(auditEvents.actorUserId, users.id)).where(eq(auditEvents.validationRecordId, recordId)).orderBy(desc(auditEvents.createdAt));
+}
+
+export type InstrumentProfilePayload = {
+  instrumentKey: string;
+  nameAr: string;
+  nameEn: string;
+  instrumentId: string;
+  sopNumber: string;
+  manufacturer: string;
+  model: string;
+  serialNumber: string;
+  formNumber: string;
+  accent: string;
+};
+
+export async function listInstrumentProfiles() {
+  const db = await requireDb();
+  return db.select().from(instrumentProfiles).orderBy(instrumentProfiles.instrumentKey);
+}
+
+export async function upsertInstrumentProfile(input: InstrumentProfilePayload & { userId: number }) {
+  const db = await requireDb();
+  const { userId, ...nextData } = input;
+  const existingRows = await db.select().from(instrumentProfiles).where(eq(instrumentProfiles.instrumentKey, input.instrumentKey)).limit(1);
+  const previous = existingRows[0] ?? null;
+  if (previous) {
+    await db.update(instrumentProfiles).set({ ...nextData, updatedByUserId: userId }).where(eq(instrumentProfiles.id, previous.id));
+  } else {
+    await db.insert(instrumentProfiles).values({ ...nextData, updatedByUserId: userId });
+  }
+  await db.insert(instrumentChangeEvents).values({
+    instrumentKey: input.instrumentKey,
+    editorUserId: userId,
+    previousData: previous ? { nameAr: previous.nameAr, nameEn: previous.nameEn, instrumentId: previous.instrumentId, sopNumber: previous.sopNumber, manufacturer: previous.manufacturer, model: previous.model, serialNumber: previous.serialNumber, formNumber: previous.formNumber, accent: previous.accent } : null,
+    nextData,
+  });
+  const profile = await db.select().from(instrumentProfiles).where(eq(instrumentProfiles.instrumentKey, input.instrumentKey)).limit(1);
+  return profile[0] ?? null;
+}
+
+export async function listInstrumentChanges(instrumentKey: string) {
+  const db = await requireDb();
+  return db.select({
+    id: instrumentChangeEvents.id,
+    instrumentKey: instrumentChangeEvents.instrumentKey,
+    previousData: instrumentChangeEvents.previousData,
+    nextData: instrumentChangeEvents.nextData,
+    createdAt: instrumentChangeEvents.createdAt,
+    editorName: users.name,
+  }).from(instrumentChangeEvents).leftJoin(users, eq(instrumentChangeEvents.editorUserId, users.id)).where(eq(instrumentChangeEvents.instrumentKey, instrumentKey)).orderBy(desc(instrumentChangeEvents.createdAt));
 }

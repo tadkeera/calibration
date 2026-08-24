@@ -80,7 +80,40 @@ export const recordApprovals = mysqlTable("recordApprovals", {
   index("recordApprovals_approver_idx").on(table.approverUserId),
 ]);
 
+/** Controlled instrument metadata overrides the baseline profile for future records and reports. */
+export const instrumentProfiles = mysqlTable("instrumentProfiles", {
+  id: int("id").autoincrement().primaryKey(),
+  instrumentKey: varchar("instrumentKey", { length: 64 }).notNull().unique(),
+  nameAr: varchar("nameAr", { length: 255 }).notNull(),
+  nameEn: varchar("nameEn", { length: 255 }).notNull(),
+  instrumentId: varchar("instrumentId", { length: 64 }).notNull(),
+  sopNumber: varchar("sopNumber", { length: 64 }).notNull(),
+  manufacturer: varchar("manufacturer", { length: 255 }).notNull(),
+  model: varchar("model", { length: 128 }).notNull(),
+  serialNumber: varchar("serialNumber", { length: 128 }).notNull(),
+  formNumber: varchar("formNumber", { length: 64 }).notNull(),
+  accent: varchar("accent", { length: 16 }).notNull(),
+  updatedByUserId: int("updatedByUserId").notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/** Append-only metadata change log for instrument profile governance. */
+export const instrumentChangeEvents = mysqlTable("instrumentChangeEvents", {
+  id: int("id").autoincrement().primaryKey(),
+  instrumentKey: varchar("instrumentKey", { length: 64 }).notNull(),
+  editorUserId: int("editorUserId").notNull(),
+  previousData: json("previousData").$type<Record<string, unknown>>(),
+  nextData: json("nextData").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("instrumentChangeEvents_key_idx").on(table.instrumentKey),
+  index("instrumentChangeEvents_editor_idx").on(table.editorUserId),
+  index("instrumentChangeEvents_createdAt_idx").on(table.createdAt),
+]);
+
 export type ValidationRecord = typeof validationRecords.$inferSelect;
 export type InsertValidationRecord = typeof validationRecords.$inferInsert;
 export type AuditEvent = typeof auditEvents.$inferSelect;
 export type RecordApproval = typeof recordApprovals.$inferSelect;
+export type InstrumentProfile = typeof instrumentProfiles.$inferSelect;
+export type InstrumentChangeEvent = typeof instrumentChangeEvents.$inferSelect;

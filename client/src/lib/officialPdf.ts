@@ -28,8 +28,25 @@ const testTranslations: Record<string, string> = {
   "الضوء الشارد": "Stray light",
   "الامتصاصية": "Absorbance",
   "معدل التدفق": "Flow rate",
+  "معدل تدفق": "Flow rate",
   "الانحراف": "Deviation",
   "RSD": "RSD",
+  "معايرة الصفر — الماء المقطر": "Zero calibration — Distilled Water",
+  "معايرة المدى — زيت المعايرة": "Span calibration — Calibration oil",
+  "تحقق:": "Verification:",
+  "المتوسط": "Mean",
+  "متوسط": "Mean",
+  "حرارة الوعاء": "Vessel temperature",
+  "سرعة التحريك": "Stirring speed",
+  "دقة طول موجة": "Wavelength accuracy",
+  "الامتصاصية النوعية عند": "Specific absorbance at",
+  "اختبار الضوء الشارد": "Stray-light limit",
+  "معايرة Span": "Span calibration",
+  "التكرارية — قراءة": "Reproducibility — reading",
+  "لزوجة قياسية": "Viscosity standard",
+  "معامل ارتباط الخطية R": "Linearity correlation factor R",
+  "الدوران البصري النوعي": "Specific optical rotation",
+  "سرعة الدورات": "Number of cycles per minute",
 };
 
 const transliteration: Record<string, string> = { "ا": "a", "أ": "a", "إ": "i", "آ": "aa", "ب": "b", "ت": "t", "ث": "th", "ج": "j", "ح": "h", "خ": "kh", "د": "d", "ذ": "dh", "ر": "r", "ز": "z", "س": "s", "ش": "sh", "ص": "s", "ض": "d", "ط": "t", "ظ": "z", "ع": "a", "غ": "gh", "ف": "f", "ق": "q", "ك": "k", "ل": "l", "م": "m", "ن": "n", "ه": "h", "و": "w", "ي": "y", "ى": "a", "ة": "a", "ئ": "y", "ؤ": "w", "ء": "", "ـ": "" };
@@ -37,10 +54,11 @@ const transliteration: Record<string, string> = { "ا": "a", "أ": "a", "إ": "i
 function officialText(value: string) {
   const exact = testTranslations[value];
   if (exact) return exact;
-  for (const [arabic, english] of Object.entries(testTranslations)) {
-    if (value.includes(arabic)) return value.replace(arabic, english);
-  }
-  return value.replace(/[\u0600-\u06FF]/g, (character) => transliteration[character] ?? "");
+  let converted = value;
+  Object.entries(testTranslations).sort(([first], [second]) => second.length - first.length).forEach(([arabic, english]) => {
+    converted = converted.replaceAll(arabic, english);
+  });
+  return converted.replace(/[\u0600-\u06FF]/g, (character) => transliteration[character] ?? "");
 }
 
 type OfficialPdfInput = {
@@ -89,12 +107,56 @@ function genericResultTable(doc: jsPDF, result: CalibrationResult, y: number) {
   const columns = [73, 47, 45, 25];
   ["Test", "Limit", "Actual", "Remarks"].forEach((head, index) => cell(doc, x + columns.slice(0, index).reduce((a, b) => a + b, 0), y, columns[index], 6, head, { bold: true, italic: true, align: "center", fontSize: 8 }));
   let rowY = y + 6;
-  result.rows.slice(0, 17).forEach((row) => {
+  const rowHeight = result.rows.length > 16 ? 4.8 : 5.5;
+  result.rows.forEach((row) => {
     const values = [officialText(row.test), officialText(row.expected), officialText(row.actual), row.pass ? "Pass" : "Fail"];
-    values.forEach((value, index) => cell(doc, x + columns.slice(0, index).reduce((a, b) => a + b, 0), rowY, columns[index], 5.5, value, { bold: index === 3, italic: index === 3, align: index === 3 ? "center" : "left", fontSize: 7.1 }));
-    rowY += 5.5;
+    values.forEach((value, index) => cell(doc, x + columns.slice(0, index).reduce((a, b) => a + b, 0), rowY, columns[index], rowHeight, value, { bold: index === 3, italic: index === 3, align: index === 3 ? "center" : "left", fontSize: result.rows.length > 16 ? 6.15 : 7.1 }));
+    rowY += rowHeight;
   });
   return rowY + 3;
+}
+
+type ReportChart = { title: string; xLabel: string; yLabel: string; data: { label: string; value: number; reference?: number }[] };
+
+function drawReportChart(doc: jsPDF, chart: ReportChart, x: number, y: number, width = 190, height = 57) {
+  doc.rect(x, y, width, height);
+  doc.setFont("times", "bold"); doc.setFontSize(8.3); doc.text(chart.title, x + width / 2, y + 6, { align: "center" });
+  const plotX = x + 16, plotY = y + 11, plotW = width - 24, plotH = height - 21;
+  doc.rect(plotX, plotY, plotW, plotH);
+  for (let grid = 1; grid < 5; grid += 1) { line(doc, plotX + (plotW / 5) * grid, plotY, plotX + (plotW / 5) * grid, plotY + plotH, 0.08); line(doc, plotX, plotY + (plotH / 5) * grid, plotX + plotW, plotY + (plotH / 5) * grid, 0.08); }
+  const values = chart.data.map((point) => point.value);
+  const refs = chart.data.map((point) => point.reference).filter((value): value is number => typeof value === "number");
+  const minimum = Math.min(...values, ...refs); const maximum = Math.max(...values, ...refs); const padding = Math.max((maximum - minimum) * 0.14, Math.abs(maximum) * 0.025, 0.01); const min = minimum - padding; const max = maximum + padding;
+  const yPosition = (value: number) => plotY + plotH - ((value - min) / Math.max(max - min, 0.0001)) * plotH;
+  const xPosition = (index: number) => plotX + (plotW / Math.max(chart.data.length - 1, 1)) * index;
+  const reference = chart.data.map((point) => point.reference);
+  if (reference.every((value) => typeof value === "number")) { doc.setLineDashPattern([1, 1], 0); doc.setDrawColor(132, 145, 137); reference.forEach((value, index) => { if (index) line(doc, xPosition(index - 1), yPosition(reference[index - 1]!), xPosition(index), yPosition(value!), 0.35); }); doc.setLineDashPattern([], 0); doc.setDrawColor(0); }
+  chart.data.forEach((point, index) => { const pointX = xPosition(index); const pointY = yPosition(point.value); if (index) { const previous = chart.data[index - 1]; line(doc, xPosition(index - 1), yPosition(previous.value), pointX, pointY, 0.65); } doc.circle(pointX, pointY, 0.75, "F"); });
+  doc.setFont("times", "normal"); doc.setFontSize(6.3); doc.text(max.toFixed(Math.abs(max) < 10 ? 3 : 1), plotX - 2, plotY + 2, { align: "right" }); doc.text(min.toFixed(Math.abs(min) < 10 ? 3 : 1), plotX - 2, plotY + plotH, { align: "right" });
+  chart.data.forEach((point, index) => { if (chart.data.length <= 6 || index === 0 || index === chart.data.length - 1 || index === Math.floor(chart.data.length / 2)) doc.text(point.label, xPosition(index), plotY + plotH + 4, { align: "center" }); });
+  doc.setFontSize(7); doc.text(chart.xLabel, x + width / 2, y + height - 2, { align: "center" }); doc.text(chart.yLabel, x + 5, y + height / 2, { angle: 90, align: "center" });
+  return y + height + 4;
+}
+
+function genericLayout(doc: jsPDF, input: OfficialPdfInput, y: number) {
+  const sectionNames: Record<string, string> = {
+    disintegration: "Temperature, Time Accuracy & Number of Cycle Tests",
+    refractometer: "Calibration & Verification Tests",
+    dissolution: "Temperature, Stirring & Shaft Wobble Tests",
+    hplc: "Flow Rate Accuracy Results",
+    spectrophotometer: "Wavelength, Absorbance & Performance Tests",
+    moisture: "Span, Reproducibility, Off-center Load & Linearity Tests",
+    viscometer: "Viscosity Standards & Linearity Test",
+  };
+  let endY = genericResultTable(doc, input.result, sectionTitle(doc, sectionNames[input.device.key] ?? "Validation Test Results", y + 4));
+  if (input.device.key === "hplc" && input.result.reportCharts?.length) {
+    input.result.reportCharts.forEach((chart) => { endY = drawReportChart(doc, chart, 10, endY, 190, 36); });
+  } else if (input.result.chart && ["refractometer", "spectrophotometer", "moisture", "viscometer"].includes(input.device.key)) {
+    const chartLabels: Record<string, [string, string, string]> = { refractometer: ["Linearity Test", "Nominal RI", "Actual RI"], spectrophotometer: ["Linearity Test", "Concentration", "Absorbance"], moisture: ["Linearity Test", "Test weight", "Displayed weight"], viscometer: ["Linearity Test", "Nominal Viscosity", "Actual Viscosity"] };
+    const [title, xLabel, yLabel] = chartLabels[input.device.key];
+    endY = drawReportChart(doc, { title, xLabel, yLabel, data: input.result.chart }, 10, endY, 190, 57);
+  }
+  return endY;
 }
 
 function polarimeterLayout(doc: jsPDF, result: CalibrationResult, y: number) {
@@ -126,7 +188,7 @@ function polarimeterLayout(doc: jsPDF, result: CalibrationResult, y: number) {
   const leftX = 10;
   const chartX = 86;
   const tableWidths = [33, 33];
-  ["Nominal\nViscosity", "Actual\nViscosity"].forEach((heading, index) => cell(doc, leftX + tableWidths.slice(0, index).reduce((a, b) => a + b, 0), y + 2, tableWidths[index], 10, heading, { bold: true, italic: true, align: "center" }));
+  ["Conc.\n(g/100ml)", "Optical\nRotation"].forEach((heading, index) => cell(doc, leftX + tableWidths.slice(0, index).reduce((a, b) => a + b, 0), y + 2, tableWidths[index], 10, heading, { bold: true, italic: true, align: "center" }));
   const points = chart.length ? chart : [{ label: "10", value: 13.37 }, { label: "20", value: 26.74 }, { label: "30", value: 40.11 }, { label: "40", value: 53.48 }];
   let tableY = y + 12;
   points.forEach((point) => { cell(doc, leftX, tableY, 33, 5.6, point.label, { bold: true, italic: true, align: "center" }); cell(doc, leftX + 33, tableY, 33, 5.6, point.value.toFixed(2), { bold: true, italic: true, align: "center" }); tableY += 5.6; });
@@ -171,7 +233,8 @@ export async function downloadOfficialPdf(input: OfficialPdfInput) {
   const headerImage = await toDataUrl(officialHeaderUrl);
   doc.setLineWidth(0.35); doc.rect(5, 5, 200, 287); doc.rect(5.8, 5.8, 198.4, 285.4);
   doc.addImage(headerImage, "PNG", 8, 8, 194, 37.7);
-  doc.setFont("times", "bolditalic"); doc.setFontSize(13); doc.text("Validation Record", 105, 52, { align: "center" });
+  const reportTitle = input.device.key === "hplc" ? "Flow Rate Accuracy Report" : "Validation Record";
+  doc.setFont("times", "bolditalic"); doc.setFontSize(13); doc.text(reportTitle, 105, 52, { align: "center" });
   const metaY = 55;
   const columns = [35, 61, 35, 59];
   const metadata = [
@@ -181,7 +244,7 @@ export async function downloadOfficialPdf(input: OfficialPdfInput) {
   ];
   metadata.forEach((row, rowIndex) => row.forEach((value, columnIndex) => cell(doc, 10 + columns.slice(0, columnIndex).reduce((a, b) => a + b, 0), metaY + rowIndex * 6, columns[columnIndex], 6, value, { bold: columnIndex % 2 === 0, italic: columnIndex % 2 === 1, fontSize: 8 })));
   const contentStart = metaY + 22;
-  const endY = input.device.key === "polarimeter" ? polarimeterLayout(doc, input.result, contentStart) : genericResultTable(doc, input.result, sectionTitle(doc, "Validation Test Results", contentStart + 4));
+  const endY = input.device.key === "polarimeter" ? polarimeterLayout(doc, input.result, contentStart) : genericLayout(doc, input, contentStart);
   signatureBlock(doc, Math.min(263, Math.max(endY + 3, 262)), input);
   doc.save(`${input.device.english.replaceAll(" ", "_")}_Validation_Record.pdf`);
 }

@@ -22,6 +22,19 @@ export type Device = {
   accent: string;
 };
 
+export type DeviceProfileOverride = {
+  instrumentKey: string;
+  nameAr: string;
+  nameEn: string;
+  instrumentId: string;
+  sopNumber: string;
+  manufacturer: string;
+  model: string;
+  serialNumber: string;
+  formNumber: string;
+  accent: string;
+};
+
 export type ResultRow = {
   test: string;
   expected: string;
@@ -36,6 +49,7 @@ export type CalibrationResult = {
   metrics: { label: string; value: string; tone?: "success" | "warning" | "neutral" }[];
   chart?: { label: string; value: number; reference?: number }[];
   chartTitle?: string;
+  reportCharts?: { title: string; xLabel: string; yLabel: string; data: { label: string; value: number; reference?: number }[] }[];
   note?: string;
   createdAt: string;
 };
@@ -50,6 +64,26 @@ export const devices: Device[] = [
   { key: "polarimeter", name: "جهاز الاستقطاب البصري", english: "Polarimeter", sop: "QC-032D", id: "QC-I-029", manufacturer: "Bellingham & Stanley (UK)", model: "ADP220", serial: "PE99003", form: "QC-032B-01", accent: "#9A633F" },
   { key: "viscometer", name: "جهاز قياس اللزوجة الدوار", english: "Rotational Viscometer", sop: "QC-041D", id: "QC-I-034", manufacturer: "Fungi lab (Spain)", model: "Visco Star-L", serial: "CL3010397", form: "QC-041B-01", accent: "#584F76" },
 ];
+
+/** Keeps the controlled device registry in sync with administrative database overrides. */
+export function applyDeviceProfileOverrides(profiles: DeviceProfileOverride[]) {
+  profiles.forEach((profile) => {
+    const device = devices.find((candidate) => candidate.key === profile.instrumentKey);
+    if (!device) return;
+    Object.assign(device, {
+      name: profile.nameAr,
+      english: profile.nameEn,
+      id: profile.instrumentId,
+      sop: profile.sopNumber,
+      manufacturer: profile.manufacturer,
+      model: profile.model,
+      serial: profile.serialNumber,
+      form: profile.formNumber,
+      accent: profile.accent,
+    });
+  });
+  return devices;
+}
 
 export const defaultSettings: Record<DeviceKey, Record<string, any>> = {
   disintegration: { bathSet: 38, bathTolerance: 2, mediumMin: 35, mediumMax: 39, timeMin: 239, timeMax: 241, cycleMin: 29, cycleMax: 32 },
