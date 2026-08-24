@@ -1,5 +1,5 @@
 /** Design reminder: each form expresses the "دفتر المختبر الأخضر" style with local acceptance limits, calm hierarchy, and paper-like precision. */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Activity, ArrowLeft, Beaker, Calculator, FlaskConical, Gauge, RotateCcw, Thermometer, Waves } from "lucide-react";
 import { CalibrationResult, Device, DeviceKey, ResultRow, mean, parseTime, regression, sampleStd } from "@/lib/qc";
 
@@ -7,16 +7,105 @@ type Props = { device: Device; config: Record<string, any>; onComplete: (result:
 
 const runLabel = "تنفيذ فحص التحقق";
 
+const englishLabels: Record<string, string> = {
+  "تنفيذ فحص التحقق": "Run validation test",
+  "فحص جهاز اختبار التفكك": "Disintegration tester validation",
+  "أدخل القياسات الفعلية، ثم يقارن النظام كل قراءة بحدود SOP.": "Enter the actual readings; the system compares every value against the applicable SOP limits.",
+  "حرارة الحمام المائي": "Water-bath temperature",
+  "حرارة وسط التفكك": "Disintegration medium temperature",
+  "الوقت المسجل": "Recorded time",
+  "عدد الدورات في الدقيقة": "Cycles per minute",
+  "فحص جهاز قياس معامل الانكسار": "Refractometer validation",
+  "يتحقق السجل من الصفر والمدى ثم يثبت الخطية عبر خمسة محاليل قياسية.": "Checks zero and span calibration, then verifies linearity through five standard liquids.",
+  "محاليل التحقق القياسية": "Verification standards",
+  "فحص جهاز اختبار الذوبان": "Dissolution tester validation",
+  "يختبر درجة الحرارة، وسرعة التحريك، وترنح المحاور للأوعية الستة.": "Checks temperature, stirring accuracy, and shaft wobble across six vessels.",
+  "حرارة الأوعية الستة": "Six vessel temperatures",
+  "دقة سرعة التحريك": "Stirring-speed accuracy",
+  "ترنح أعمدة السلال": "Basket shaft wobble",
+  "ترنح أعمدة المجاديف": "Paddle shaft wobble",
+  "فحص مضخة HPLC": "HPLC pump validation",
+  "سجّل عشر قراءات عند كل معدل تدفق، وسيُحسب المتوسط والانحراف وRSD تلقائياً.": "Enter ten readings at each flow rate; mean, deviation and RSD are calculated automatically.",
+  "فحص المطياف الضوئي UV-Vis": "UV-Vis spectrophotometer validation",
+  "يشمل التحكم بأطوال الموجات، الامتصاصية النوعية، الضوء الشارد، وخطية الامتصاص.": "Covers wavelength control, specific absorbance, stray light and absorbance linearity.",
+  "أطوال الموجات": "Wavelengths",
+  "الامتصاصية المقاسة": "Measured absorbance",
+  "خطية الامتصاص": "Absorbance linearity",
+  "فحص جهاز قياس الرطوبة": "Moisture analyzer validation",
+  "يوثق دقة الوزن والتكرارية والحمل اللامركزي وخطية الجهاز.": "Documents weight accuracy, repeatability, off-center loading and balance linearity.",
+  "فحص التكرارية — 20 g": "Repeatability test — 20 g",
+  "الحمل اللامركزي — 20 g": "Off-center load — 20 g",
+  "اختبار الخطية": "Linearity test",
+  "فحص جهاز الاستقطاب البصري": "Polarimeter validation",
+  "يحسب النظام الدوران النوعي ويتحقق من التكرارية والخطية حسب التركيز.": "Calculates specific rotation and verifies repeatability and concentration linearity.",
+  "قراءات التكرارية": "Repeatability readings",
+  "خطية الدوران البصري": "Optical-rotation linearity",
+  "فحص جهاز قياس اللزوجة الدوار": "Rotational viscometer validation",
+  "تحقق من ثلاث لزوجات معيارية ثم ثبّت خطية الجهاز عبر أربعة مستويات.": "Check three viscosity standards, then establish instrument linearity across four levels.",
+  "معايير اللزوجة عند 25°C": "Viscosity standards at 25°C",
+  "دقائق.ثوانٍ": "Minutes.seconds",
+  "النطاق المعتمد": "Approved range",
+  "القراءات عند 20°C.": "Readings at 20°C.",
+  "الحد المعتمد": "Approved limit",
+  "قراءة واحدة لكل معدل معتمد.": "One reading at each approved rate.",
+  "الحدود تعرض في نتائج الفحص.": "Limits are shown in the validation results.",
+  "10 عينات متتالية": "10 consecutive samples",
+  "عشر قراءات فعلية بالنانومتر.": "Ten actual readings in nanometres.",
+  "محلول Potassium Dichromate 0.006 g/100 ml.": "Potassium Dichromate solution 0.006 g/100 ml.",
+  "التركيزات: 20، 40، 60، 80، 100 ppm": "Concentrations: 20, 40, 60, 80, 100 ppm",
+  "الأوزان النظرية: 0، 5، 10، 20، 30 g": "Nominal weights: 0, 5, 10, 20, 30 g",
+  "ست قراءات متتابعة لعينة 20% w/v.": "Six consecutive readings for the 20% w/v sample.",
+  "التركيزات: 10، 20، 30، 40% w/v": "Concentrations: 10, 20, 30, 40% w/v",
+  "المغزل والسرعة موثقان في حد القبول.": "Spindle and speed are documented in the acceptance limit.",
+  "مستويات اللزوجة: 50، 1,000، 5,000، 12,500 cP": "Viscosity levels: 50, 1,000, 5,000, 12,500 cP",
+  "قراءة الماء المقطر — Zero": "Distilled-water reading — Zero",
+  "قراءة زيت المعايرة — Span": "Calibration-oil reading — Span",
+  "حرارة الحمام المائي الفعلية": "Actual water-bath temperature",
+  "قراءة كفاءة الطول الموجي": "Wavelength efficiency reading",
+  "امتصاصية الضوء الشارد": "Stray-light absorbance",
+  "وزن المعايرة المقاس — Span": "Measured calibration weight — Span",
+  "الدوران البصري المقاس": "Measured optical rotation",
+  "طول الأنبوب": "Tube length",
+  "تركيز المحلول": "Solution concentration",
+};
+
+function uiText(value: string) {
+  if (typeof document === "undefined" || document.documentElement.lang !== "en") return value;
+  if (englishLabels[value]) return englishLabels[value];
+  const trial = value.match(/^المحاولة (\d+)$/); if (trial) return `Attempt ${trial[1]}`;
+  const vessel = value.match(/^وعاء (\d+)$/); if (vessel) return `Vessel ${vessel[1]}`;
+  const basket = value.match(/^سلة (\d+)$/); if (basket) return `Basket ${basket[1]}`;
+  const paddle = value.match(/^مجداف (\d+)$/); if (paddle) return `Paddle ${paddle[1]}`;
+  const sample = value.match(/^ع(\d+)$/); if (sample) return `Sample ${sample[1]}`;
+  const reading = value.match(/^قراءة (\d+)$/); if (reading) return `Reading ${reading[1]}`;
+  const position = value.match(/^موضع (\d+)$/); if (position) return `Position ${position[1]}`;
+  return value;
+}
+
+function translateInlineText(value: string) {
+  if (typeof document === "undefined" || document.documentElement.lang !== "en") return value;
+  let translated = value;
+  Object.entries(englishLabels).sort(([first], [second]) => second.length - first.length).forEach(([arabic, english]) => { translated = translated.replaceAll(arabic, english); });
+  return translated
+    .replace(/المحاولة\s*(\d+)/g, "Attempt $1")
+    .replace(/وعاء\s*(\d+)/g, "Vessel $1")
+    .replace(/سلة\s*(\d+)/g, "Basket $1")
+    .replace(/مجداف\s*(\d+)/g, "Paddle $1")
+    .replace(/قراءة\s*(\d+)/g, "Reading $1")
+    .replace(/موضع\s*(\d+)/g, "Position $1")
+    .replace(/ع(\d+)/g, "Sample $1");
+}
+
 function NumberField({ label, value, onChange, step = 0.1, compact = false, hint }: { label: string; value: number; onChange: (value: number) => void; step?: number; compact?: boolean; hint?: string }) {
-  return <label className={compact ? "field field-compact" : "field"}><span>{label}</span>{hint && <small>{hint}</small>}<input type="number" inputMode="decimal" value={Number.isFinite(value) ? value : 0} step={step} onChange={(event) => onChange(Number(event.target.value))} /></label>;
+  return <label className={compact ? "field field-compact" : "field"}><span>{uiText(label)}</span>{hint && <small>{hint}</small>}<input type="number" inputMode="decimal" value={Number.isFinite(value) ? value : 0} step={step} onChange={(event) => onChange(Number(event.target.value))} /></label>;
 }
 
 function FormHeader({ icon: Icon, title, description }: { icon: typeof Beaker; title: string; description: string }) {
-  return <header className="form-header"><div className="form-icon"><Icon size={22} /></div><div><span className="eyebrow">قراءات فعلية</span><h2>{title}</h2><p>{description}</p></div></header>;
+  return <header className="form-header"><div className="form-icon"><Icon size={22} /></div><div><span className="eyebrow">{typeof document !== "undefined" && document.documentElement.lang === "en" ? "ACTUAL READINGS" : "قراءات فعلية"}</span><h2>{uiText(title)}</h2><p>{uiText(description)}</p></div></header>;
 }
 
 function Submit({ onClick }: { onClick: () => void }) {
-  return <button type="button" className="run-button" onClick={onClick}><Calculator size={18} /> {runLabel}<ArrowLeft size={16} /></button>;
+  return <button type="button" className="run-button" onClick={onClick}><Calculator size={18} /> {uiText(runLabel)}<ArrowLeft size={16} /></button>;
 }
 
 function makeResult(deviceKey: DeviceKey, rows: ResultRow[], metrics: CalibrationResult["metrics"], chart?: CalibrationResult["chart"], chartTitle?: string, note?: string): CalibrationResult {
@@ -78,13 +167,17 @@ function Viscometer({ config, onComplete }: Omit<Props, "device">) {
 }
 
 export function CalibrationForm({ device, config, onComplete }: Props) {
+  const formRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = formRef.current;
+    if (!root || document.documentElement.lang !== "en") return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes: Text[] = [];
+    let node = walker.nextNode();
+    while (node) { nodes.push(node as Text); node = walker.nextNode(); }
+    nodes.forEach((textNode) => { textNode.nodeValue = translateInlineText(textNode.nodeValue ?? ""); });
+  });
   const props = { config, onComplete };
-  if (device.key === "disintegration") return <Disintegration {...props} />;
-  if (device.key === "refractometer") return <Refractometer {...props} />;
-  if (device.key === "dissolution") return <Dissolution {...props} />;
-  if (device.key === "hplc") return <Hplc {...props} />;
-  if (device.key === "spectrophotometer") return <Spectrophotometer {...props} />;
-  if (device.key === "moisture") return <Moisture {...props} />;
-  if (device.key === "polarimeter") return <Polarimeter {...props} />;
-  return <Viscometer {...props} />;
+  const form = device.key === "disintegration" ? <Disintegration {...props} /> : device.key === "refractometer" ? <Refractometer {...props} /> : device.key === "dissolution" ? <Dissolution {...props} /> : device.key === "hplc" ? <Hplc {...props} /> : device.key === "spectrophotometer" ? <Spectrophotometer {...props} /> : device.key === "moisture" ? <Moisture {...props} /> : device.key === "polarimeter" ? <Polarimeter {...props} /> : <Viscometer {...props} />;
+  return <div ref={formRef}>{form}</div>;
 }

@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1787606441606,
+      "tag": "0000_oval_captain_midlands",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1787607423453,
+      "tag": "0001_smooth_major_mapleleaf",
+      "breakpoints": true
+    }
+  ]
+}
