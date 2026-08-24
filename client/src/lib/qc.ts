@@ -54,6 +54,66 @@ export type CalibrationResult = {
   createdAt: string;
 };
 
+/** Official English labels shown in the on-screen result record, independent of the interface language. */
+const resultEnglishTerms: Record<string, string> = {
+  "معايرة الصفر — الماء المقطر": "Zero calibration — Distilled Water",
+  "معايرة المدى — زيت المعايرة": "Span calibration — Calibration oil",
+  "معامل ارتباط الخطية R": "Linearity correlation factor R",
+  "الدوران البصري النوعي": "Specific optical rotation",
+  "الامتصاصية النوعية عند": "Specific absorbance at",
+  "خطية الامتصاص مقابل التركيز": "Absorbance linearity vs concentration",
+  "خطية الدوران البصري": "Optical rotation linearity",
+  "حرارة وسط التفكك": "Disintegration medium temperature",
+  "حرارة الحمام المائي": "Water-bath temperature",
+  "حرارة الوعاء": "Vessel temperature",
+  "سرعة التحريك": "Stirring speed",
+  "ترنح عمود المجداف": "Paddle shaft wobble",
+  "ترنح عمود السلة": "Basket shaft wobble",
+  "متوسط حرارة الأوعية": "Mean vessel temperature",
+  "معايرة Span": "Span calibration",
+  "الحمل اللامركزي": "Off-center load",
+  "معامل R": "R factor",
+  "انحراف Span": "Span deviation",
+  "خطية الوزن": "Weight linearity",
+  "خطية اللزوجة": "Viscosity linearity",
+  "لزوجة قياسية": "Viscosity standard",
+  "معامل ارتباط": "Correlation factor",
+  "دقة طول الموجة": "Wavelength accuracy",
+  "دقة طول موجة": "Wavelength accuracy",
+  "اختبار الضوء الشارد": "Stray-light limit",
+  "الضوء الشارد": "Stray light",
+  "معدل تدفق": "Flow rate",
+  "متوسط": "Mean",
+  "المتوسط": "Mean",
+  "الدوران النوعي": "Specific rotation",
+  "التكرارية": "Reproducibility",
+  "سرعة الدورات": "Cycle speed",
+  "دقة التوقيت": "Timer accuracy",
+  "أعلى ترنح": "Maximum wobble",
+  "الميل": "Slope",
+  "نقطة التقاطع": "Intercept",
+  "تحقق:": "Verification:",
+  "ماء مقطر": "Distilled Water",
+  "كحول أيزوبروبيلي": "Isopropyl Alcohol",
+  "ثنائي كلورو ميثان": "Dichloromethane",
+  "جليسرين": "Glycerin",
+  "بنزالدهيد": "Benzaldehyde",
+  "المركز": "Centre",
+  "مركز": "Centre",
+  "ركن": "Corner",
+  "قراءة": "Reading",
+  "المحاولة": "Attempt",
+  "من القراءة الأولى": "from the first reading",
+};
+
+export function englishResultLabel(value: string) {
+  let translated = value;
+  Object.entries(resultEnglishTerms)
+    .sort(([first], [second]) => second.length - first.length)
+    .forEach(([arabic, english]) => { translated = translated.replaceAll(arabic, english); });
+  return translated;
+}
+
 export const devices: Device[] = [
   { key: "disintegration", name: "جهاز اختبار التفكك", english: "Disintegration Tester", sop: "QC-012C", id: "QC-I-008", manufacturer: "Erweka (Germany)", model: "ZT51", serial: "102010", form: "QC-012B-01", accent: "#0C5A4C" },
   { key: "refractometer", name: "جهاز قياس معامل الانكسار", english: "Refractometer", sop: "QC-034D", id: "QC-I-030", manufacturer: "Bellingham & Stanley (UK)", model: "RFM340", serial: "BT98350", form: "QC-034B-01", accent: "#2F6C61" },

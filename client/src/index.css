@@ -17,7 +17,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .sidebar { position: fixed; z-index: 20; inset: 0 0 0 auto; width: 278px; min-height: 100vh; display: flex; flex-direction: column; background: #0A443A url('/manus-storage/yemen-qc-lab-archival-texture_0297d400.jpg') center/cover; color: #F8F5EA; padding: 24px 18px 18px; box-shadow: -14px 0 40px rgba(11, 53, 44, .12); overflow: auto; }
 .sidebar::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(5,48,40,.93), rgba(8,59,49,.98)); z-index: -1; }
 .brand-block { display: flex; align-items: center; gap: 11px; padding: 0 5px 22px; border-bottom: 1px solid rgba(235,244,235,.16); }
-.brand-block img { width: 49px; height: 49px; object-fit: contain; background: #F6F4ED; padding: 7px; border-radius: 17px 8px 17px 8px; }
+.brand-block img { width: 49px; height: 49px; object-fit: contain; background: #F6F4ED; padding: 3px; border-radius: 17px 8px 17px 8px; }
 .brand-block strong, h1, h2, h3 { font-family: "Noto Kufi Arabic", sans-serif; letter-spacing: -.045em; }
 .brand-block strong { font-size: 18px; display: block; letter-spacing: -.08em; }
 .brand-block span { display: block; margin-top: 2px; font-size: 10px; color: #C5D5CC; }
@@ -52,7 +52,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 /* Register reinforcement pass: controlled-record cues make the first screen read as an active QC log, never as a generic landing page. */
 .workspace-content { position: relative; background-image: linear-gradient(to bottom, transparent 31px, rgba(113,135,122,.055) 32px); background-size: 100% 33px; }
 .topbar { border-bottom: 2px solid #D5DED5; }
-.topbar::after { content: ""; position: absolute; inset-block: 0; inset-inline-start: 0; width: 168px; background: url('/manus-storage/yemen-qc-calibration-seal_30bbd243.png') 30px center / 30px no-repeat; opacity: .93; pointer-events: none; }
+.topbar::after { content: ""; position: absolute; inset-block: 0; inset-inline-start: 0; width: 168px; background: url('/manus-storage/yemen-qc-official-header-logo_68fac21a.png') 30px center / 22px 33px no-repeat; opacity: .93; pointer-events: none; }
 .topbar::before { content: "مِعيار · سجل تحقق رقمي"; position: absolute; inset-inline-start: 60px; color: #0C5A4C; font-family: "Noto Kufi Arabic", sans-serif; font-size: 9px; letter-spacing: -.03em; }
 .hero-panel { min-height: 302px; border: 1px solid #CAD9CE; border-top: 4px solid #0C5A4C; border-radius: 4px 18px 4px 18px; box-shadow: 0 14px 32px rgba(24,64,51,.06); }
 .hero-panel::before { content: "جلسة تحقق QCV-260825  ·  الإجراء التالي: إدخال قراءات الجهاز المحدد"; position: absolute; z-index: 2; top: 18px; inset-inline-start: 27px; padding: 7px 10px; border: 1px solid rgba(12,90,76,.25); border-right: 3px solid #B88238; background: rgba(251,250,243,.88); color: #315D50; font-weight: 700; font-size: 10px; letter-spacing: .02em; }
