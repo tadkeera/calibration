@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>إعداد مِعيار لسطح المكتب</title>
+    <style>
+      body{margin:0;min-height:100vh;background:#0c4a40;color:#173a32;font-family:Tahoma,Arial,sans-serif;display:grid;place-items:center}.card{width:min(560px,calc(100% - 48px));padding:38px;background:#fffdf8;border-radius:20px;box-shadow:0 25px 70px #05282080}.eyebrow{color:#a97931;font-weight:700;font-size:12px;letter-spacing:.08em}.brand{display:flex;align-items:center;gap:14px}.seal{width:52px;height:52px;border:1px solid #dfe7df;border-radius:12px;padding:5px}.title{margin:14px 0 6px;font-size:29px}.copy{line-height:1.8;color:#557067}.choice{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:25px 0}.choice button{border:1px solid #c8d8d1;background:#fff;padding:18px;border-radius:13px;text-align:right;font:inherit;cursor:pointer}.choice button.active{border:2px solid #0c5a4c;background:#eaf4ef}.choice strong,.choice small{display:block}.choice small{margin-top:5px;color:#6a8078;line-height:1.5}.fields{display:grid;gap:12px}.fields[hidden]{display:none}.fields label{display:grid;gap:6px;font-weight:bold;font-size:14px}.fields input{padding:13px;border:1px solid #b8cbc3;border-radius:9px;font:inherit;direction:ltr;text-align:left}.submit{margin-top:22px;border:0;background:#0c5a4c;color:#fff;border-radius:9px;padding:14px 20px;font:inherit;font-weight:bold;cursor:pointer}.hint{margin-top:16px;padding:12px;background:#f3f0e8;border-radius:8px;color:#645b45;font-size:13px;line-height:1.7}.error{color:#a32828;font-weight:bold;margin-top:12px}
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="brand"><img class="seal" src="../offline-assets/yemen-qc-official-header-logo_68fac21a.png" onerror="this.style.display='none'" /><div><span class="eyebrow">MIYAR DESKTOP</span><h1 class="title">إعداد مِعيار لسطح المكتب</h1></div></div>
+      <p class="copy">اختر جهاز المضيف لحفظ قاعدة البيانات محليًا ومشاركة السجلات داخل الشبكة، أو جهاز العميل للاتصال بالمضيف دون إنترنت.</p>
+      <div class="choice"><button id="host" class="active" type="button"><strong>هذا الجهاز هو المضيف</strong><small>يحفظ SQLite محليًا ويخدم الأجهزة المتصلة عبر LAN.</small></button><button id="client" type="button"><strong>هذا الجهاز عميل</strong><small>يفتح النظام من مضيف موجود داخل الشبكة الداخلية.</small></button></div>
+      <form id="setup"><div id="hostFields" class="fields"><label>كلمة مرور المدير الأولية<input id="adminPassword" type="password" minlength="8" required autocomplete="new-password" /></label><label>تأكيد كلمة المرور<input id="adminConfirmation" type="password" minlength="8" required autocomplete="new-password" /></label></div><div id="clientFields" class="fields" hidden><label>عنوان المضيف الداخلي<input id="hostUrl" type="url" placeholder="http://192.168.1.20:3010" /></label></div><button class="submit" type="submit">بدء التشغيل</button><p class="error" id="error" hidden></p></form>
+      <p class="hint">لا يحتاج المضيف إلى الإنترنت. خصص عنوان IP ثابتًا للمضيف أو اسم جهاز ثابتًا، واجعل المنفذ 3010 مسموحًا في جدار حماية Windows للشبكة الخاصة فقط.</p>
+    </main>
+    <script>
+      let mode='host'; const host=document.getElementById('host'),client=document.getElementById('client'),hostFields=document.getElementById('hostFields'),clientFields=document.getElementById('clientFields'),error=document.getElementById('error');
+      function choose(next){mode=next;host.classList.toggle('active',next==='host');client.classList.toggle('active',next==='client');hostFields.hidden=next!=='host';clientFields.hidden=next!=='client';document.getElementById('adminPassword').required=next==='host';document.getElementById('adminConfirmation').required=next==='host';document.getElementById('hostUrl').required=next==='client';}
+      host.onclick=()=>choose('host');client.onclick=()=>choose('client');
+      document.getElementById('setup').onsubmit=async event=>{event.preventDefault();error.hidden=true;const password=document.getElementById('adminPassword').value, confirmation=document.getElementById('adminConfirmation').value;if(mode==='host'&&password!==confirmation){error.textContent='تأكيد كلمة المرور غير مطابق.';error.hidden=false;return;}try{await window.miayarDesktop.configure(mode==='host'?{mode,initialAdminPassword:password}:{mode,hostUrl:document.getElementById('hostUrl').value});}catch(issue){error.textContent=issue.message||'تعذر بدء التشغيل.';error.hidden=false;}};
+    </script>
+  </body>
+</html>

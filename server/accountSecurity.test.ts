@@ -13,7 +13,9 @@ describe("account security", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch");
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ user: { id: "disabled-user", email: "disabled@example.test" } }), { status: 200 }));
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([{ id: 12, auth_user_id: "disabled-user", open_id: "supabase:disabled-user", name: "Disabled", email: "disabled@example.test", login_method: "local", role: "user", is_active: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), last_signed_in: new Date().toISOString() }]), { status: 200 }));
+    fetchMock.mockResolvedValueOnce(new Response("", { status: 201 }));
     await expect(localLogin({ email: "disabled@example.test", password: "any-password" })).rejects.toThrow("User account is unavailable");
+    expect(fetchMock.mock.calls[2]?.[0]).toContain("/rest/v1/admin_activity_events");
   });
 
   it("rejects an existing application session after the profile is disabled", async () => {
@@ -23,10 +25,11 @@ describe("account security", () => {
   });
 
   it("calls Supabase recovery endpoints with a bounded recovery redirect and token", async () => {
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { status: 200 }));
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response("{}", { status: 200 }));
     await expect(requestPasswordRecovery({ email: "account@example.test", redirectTo: "https://example.test/?recovery=1" })).resolves.toEqual({ success: true });
     await expect(completePasswordRecovery({ recoveryToken: "a".repeat(32), newPassword: "new-secure-password" })).resolves.toEqual({ success: true });
-    expect(fetchMock.mock.calls[0]?.[0]).toContain("/auth/v1/recover");
-    expect(fetchMock.mock.calls[1]?.[0]).toContain("/auth/v1/user");
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/auth/v1/recover"))).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/auth/v1/user"))).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/rest/v1/admin_activity_events"))).toBe(true);
   });
 });

@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
+import path from "node:path";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
@@ -34,7 +35,12 @@ async function startServer() {
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
-  registerStorageProxy(app);
+  if (process.env.QC_STORAGE_MODE === "local") {
+    const assetDirectory = process.env.QC_DESKTOP_ASSETS_DIR;
+    if (assetDirectory) app.use("/manus-storage", express.static(path.resolve(assetDirectory), { fallthrough: false, maxAge: "7d" }));
+  } else {
+    registerStorageProxy(app);
+  }
   registerOAuthRoutes(app);
   // tRPC API
   app.use(
@@ -58,8 +64,9 @@ async function startServer() {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
-  server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
+  const host = process.env.QC_LAN_HOST === "true" ? "0.0.0.0" : undefined;
+  server.listen(port, host, () => {
+    console.log(`Server running on http://${host ?? "localhost"}:${port}/`);
   });
 }
 

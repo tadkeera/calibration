@@ -8,6 +8,7 @@ import { recordsRouter } from "./routers/records";
 import { instrumentsRouter } from "./routers/instruments";
 import { usersRouter } from "./routers/users";
 import { settingsRouter } from "./routers/settings";
+import { adminActivitiesRouter } from "./routers/adminActivities";
 import { z } from "zod";
 
 export const appRouter = router({
@@ -53,6 +54,7 @@ export const appRouter = router({
   records: recordsRouter,
   instruments: instrumentsRouter,
   users: usersRouter,
+  adminActivities: adminActivitiesRouter,
   settings: settingsRouter,
 });
 

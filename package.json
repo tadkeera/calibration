@@ -1,7 +1,14 @@
 {
   "name": "yemen-qc-validation",
   "version": "1.0.0",
+  "description": "Offline-capable laboratory validation system for the National Quality Control Laboratory in Yemen.",
+  "author": "National Quality Control Laboratory — Aden",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tadkeera/calibration.git"
+  },
   "type": "module",
+  "main": "desktop/main.cjs",
   "license": "MIT",
   "scripts": {
     "dev": "NODE_ENV=development tsx watch server/_core/index.ts",
@@ -9,8 +16,12 @@
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc --noEmit",
     "format": "prettier --write .",
-    "test": "vitest run",
-    "db:push": "drizzle-kit generate && drizzle-kit migrate"
+    "test": "NODE_OPTIONS=--experimental-sqlite vitest run",
+    "db:push": "drizzle-kit generate && drizzle-kit migrate",
+    "desktop:dev": "electron .",
+    "build:desktop": "pnpm build && electron-builder --win portable --x64 --publish never",
+    "build:desktop:installer": "pnpm build && electron-builder --win nsis --x64 --publish never",
+    "build:desktop:ci": "pnpm build && electron-builder --win nsis --x64 --publish never --config.directories.output=release"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
@@ -81,6 +92,7 @@
   },
   "devDependencies": {
     "@builder.io/vite-plugin-jsx-loc": "^0.1.1",
+    "@electron/rebuild": "^4.2.0",
     "@tailwindcss/typography": "^0.5.15",
     "@tailwindcss/vite": "^4.1.3",
     "@types/express": "4.17.21",
@@ -92,6 +104,8 @@
     "add": "^2.0.6",
     "autoprefixer": "^10.4.20",
     "drizzle-kit": "^0.31.4",
+    "electron": "^44.0.0",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.25.0",
     "pnpm": "^10.15.1",
     "postcss": "^8.4.47",
@@ -103,6 +117,35 @@
     "vite": "^7.1.7",
     "vite-plugin-manus-runtime": "0.0.59",
     "vitest": "^2.1.4"
+  },
+  "build": {
+    "appId": "ye.gov.nqcl.miyar",
+    "productName": "Miayar Laboratory Validation",
+    "artifactName": "Miayar-Setup-${version}.${ext}",
+    "directories": {
+      "output": "../desktop-build/win"
+    },
+    "files": [
+      "dist/**/*",
+      "desktop/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../desktop-assets",
+        "to": "offline-assets"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    }
   },
   "packageManager": "pnpm@10.4.1+sha512.c753b6c3ad7afa13af388fa6d808035a008e30ea9993f58c6663e2bc5ff21679aa834db094987129aa4d488b86df57f7b634981b2f827cdcacc698cc0cfb88af",
   "pnpm": {
