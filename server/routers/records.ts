@@ -9,7 +9,7 @@ import {
   markValidationRecordExported,
   updateValidationRecord,
 } from "../db";
-import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
+import { adminProcedure, editorProcedure, protectedProcedure, router } from "../_core/trpc";
 
 const resultDataSchema = z.record(z.string(), z.unknown());
 const recordPayloadSchema = z.object({
@@ -23,10 +23,10 @@ const recordPayloadSchema = z.object({
   resultData: resultDataSchema,
 });
 
-async function requireRecordAccess(recordId: number, user: { id: number; role: "user" | "admin" }) {
+async function requireRecordAccess(recordId: number, user: { id: number; role: "user" | "admin" | "viewer" }) {
   const record = await getValidationRecordById(recordId);
   if (!record) throw new TRPCError({ code: "NOT_FOUND", message: "Validation record not found" });
-  if (user.role !== "admin" && record.validatedByUserId !== user.id) {
+  if (user.role === "user" && record.validatedByUserId !== user.id) {
     throw new TRPCError({ code: "FORBIDDEN", message: "You cannot access this validation record" });
   }
   return record;
@@ -35,17 +35,17 @@ async function requireRecordAccess(recordId: number, user: { id: number; role: "
 export const recordsRouter = router({
   list: protectedProcedure
     .input(z.object({ status: z.enum(["draft", "approved", "rejected"]).optional() }).optional())
-    .query(({ ctx, input }) => listValidationRecords({ userId: ctx.user.id, isAdmin: ctx.user.role === "admin", status: input?.status })),
+    .query(({ ctx, input }) => listValidationRecords({ userId: ctx.user.id, canViewAll: ctx.user.role === "admin" || ctx.user.role === "viewer", status: input?.status })),
 
   get: protectedProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .query(({ ctx, input }) => requireRecordAccess(input.id, ctx.user)),
 
-  save: protectedProcedure
+  save: editorProcedure
     .input(recordPayloadSchema)
     .mutation(({ ctx, input }) => createValidationRecord({ ...input, userId: ctx.user.id })),
 
-  updateDraft: protectedProcedure
+  updateDraft: editorProcedure
     .input(recordPayloadSchema.extend({ id: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
       const record = await requireRecordAccess(input.id, ctx.user);
@@ -67,7 +67,7 @@ export const recordsRouter = router({
       return getAuditTrail(input.id);
     }),
 
-  markExported: protectedProcedure
+  markExported: editorProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
       const record = await requireRecordAccess(input.id, ctx.user);

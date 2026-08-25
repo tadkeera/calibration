@@ -51,6 +51,7 @@ export type CalibrationResult = {
   chartTitle?: string;
   reportCharts?: { title: string; xLabel: string; yLabel: string; data: { label: string; value: number; reference?: number }[] }[];
   note?: string;
+  controlledSettings?: Record<string, unknown>;
   createdAt: string;
 };
 

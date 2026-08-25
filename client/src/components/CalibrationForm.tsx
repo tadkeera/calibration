@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Activity, ArrowLeft, Beaker, Calculator, FlaskConical, Gauge, RotateCcw, Thermometer, Waves } from "lucide-react";
 import { CalibrationResult, Device, DeviceKey, ResultRow, mean, parseTime, regression, sampleStd } from "@/lib/qc";
 
-type Props = { device: Device; config: Record<string, any>; onComplete: (result: CalibrationResult) => void };
+type Props = { device: Device; config: Record<string, any>; onComplete: (result: CalibrationResult) => void; readOnly?: boolean };
 
 const runLabel = "تنفيذ فحص التحقق";
 
@@ -166,7 +166,7 @@ function Viscometer({ config, onComplete }: Omit<Props, "device">) {
   return <div className="form-stack"><FormHeader icon={FlaskConical} title="فحص جهاز قياس اللزوجة الدوار" description="تحقق من ثلاث لزوجات معيارية ثم ثبّت خطية الجهاز عبر أربعة مستويات." /><section className="measure-group"><div className="group-title"><FlaskConical size={17} /><div><h3>معايير اللزوجة عند 25°C</h3><p>المغزل والسرعة موثقان في حد القبول.</p></div></div><div className="field-grid three">{values.map((value, index) => <NumberField key={index} label={`${config.standards[index].nominal} cP`} value={value} step={0.1} onChange={(next) => setValues(values.map((item, itemIndex) => itemIndex === index ? next : item))} />)}</div></section><section className="measure-group"><div className="group-title"><Activity size={17} /><div><h3>اختبار الخطية</h3><p>مستويات اللزوجة: 50، 1,000، 5,000، 12,500 cP</p></div></div><div className="field-grid four">{linearity.map((value, index) => <NumberField compact key={index} label={`${[50, 1000, 5000, 12500][index]} cP`} value={value} step={0.1} onChange={(next) => setLinearity(linearity.map((item, itemIndex) => itemIndex === index ? next : item))} />)}</div></section><Submit onClick={run} /></div>;
 }
 
-export function CalibrationForm({ device, config, onComplete }: Props) {
+export function CalibrationForm({ device, config, onComplete, readOnly = false }: Props) {
   const formRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const root = formRef.current;
@@ -177,7 +177,7 @@ export function CalibrationForm({ device, config, onComplete }: Props) {
     while (node) { nodes.push(node as Text); node = walker.nextNode(); }
     nodes.forEach((textNode) => { textNode.nodeValue = translateInlineText(textNode.nodeValue ?? ""); });
   });
-  const props = { config, onComplete };
+  const props = { config, onComplete: (result: CalibrationResult) => onComplete({ ...result, controlledSettings: JSON.parse(JSON.stringify(config)) }) };
   const form = device.key === "disintegration" ? <Disintegration {...props} /> : device.key === "refractometer" ? <Refractometer {...props} /> : device.key === "dissolution" ? <Dissolution {...props} /> : device.key === "hplc" ? <Hplc {...props} /> : device.key === "spectrophotometer" ? <Spectrophotometer {...props} /> : device.key === "moisture" ? <Moisture {...props} /> : device.key === "polarimeter" ? <Polarimeter {...props} /> : <Viscometer {...props} />;
-  return <div ref={formRef}>{form}</div>;
+  return <div ref={formRef} className={readOnly ? "validation-readonly" : undefined}>{readOnly ? <fieldset disabled>{form}</fieldset> : form}</div>;
 }

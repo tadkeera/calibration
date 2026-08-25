@@ -1,15 +1,28 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
+import { localLogin } from "./db";
 import { recordsRouter } from "./routers/records";
 import { instrumentsRouter } from "./routers/instruments";
+import { usersRouter } from "./routers/users";
+import { settingsRouter } from "./routers/settings";
+import { z } from "zod";
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
+    login: publicProcedure
+      .input(z.object({ email: z.string().email(), password: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        const user = await localLogin(input);
+        const token = await sdk.createSessionToken(user.openId, { name: user.name ?? user.email ?? "" });
+        ctx.res.cookie(COOKIE_NAME, token, { ...getSessionCookieOptions(ctx.req), maxAge: 7 * 24 * 60 * 60 * 1000 });
+        return user;
+      }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -20,6 +33,8 @@ export const appRouter = router({
   }),
   records: recordsRouter,
   instruments: instrumentsRouter,
+  users: usersRouter,
+  settings: settingsRouter,
 });
 
 export type AppRouter = typeof appRouter;

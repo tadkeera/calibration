@@ -1,93 +1,171 @@
-import { desc, eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
-import { auditEvents, InsertUser, instrumentChangeEvents, instrumentProfiles, recordApprovals, users, validationRecords } from "../drizzle/schema";
-import { ENV } from './_core/env';
 import { createRecordSummary, decisionSummary, exportRecordSummary, updateRecordSummary } from "./validationUtils";
 
-let _db: ReturnType<typeof drizzle> | null = null;
+import { assertServerEvaluatedResult } from "./validationRecompute";
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
-export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
-    try {
-      _db = drizzle(process.env.DATABASE_URL);
-    } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
-      _db = null;
-    }
-  }
-  return _db;
+export type AppRole = "admin" | "user" | "viewer";
+
+export type AppUser = {
+  id: number;
+  openId: string;
+  name: string | null;
+  email: string | null;
+  loginMethod: string | null;
+  role: AppRole;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  lastSignedIn: Date;
+};
+
+type RawUser = {
+  id: number;
+  auth_user_id: string;
+  open_id: string;
+  name: string | null;
+  email: string;
+  login_method: string;
+  role: AppRole;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  last_signed_in: string;
+};
+
+const getConfig = () => {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Supabase service configuration is unavailable");
+  return { url, key };
+};
+
+async function supabaseRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const { url, key } = getConfig();
+  const headers = new Headers(init.headers);
+  headers.set("apikey", key);
+  headers.set("Authorization", `Bearer ${key}`);
+  if (init.body) headers.set("Content-Type", "application/json");
+  const response = await fetch(`${url}${path}`, { ...init, headers });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`Supabase request failed (${response.status}): ${text.slice(0, 240)}`);
+  return (text ? JSON.parse(text) : null) as T;
 }
 
-export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) {
-    throw new Error("User openId is required for upsert");
-  }
+function mapUser(row: RawUser): AppUser {
+  return {
+    id: Number(row.id),
+    openId: row.open_id,
+    name: row.name,
+    email: row.email,
+    loginMethod: row.login_method,
+    role: row.role,
+    isActive: row.is_active,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+    lastSignedIn: new Date(row.last_signed_in),
+  };
+}
 
-  const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot upsert user: database not available");
-    return;
-  }
-
-  try {
-    const values: InsertUser = {
-      openId: user.openId,
-    };
-    const updateSet: Record<string, unknown> = {};
-
-    const textFields = ["name", "email", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
-    };
-
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
-    }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
-    }
-
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = new Date();
-    }
-
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
-    }
-
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
-    });
-  } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
-    throw error;
-  }
+function restPath(table: string, query = "") {
+  return `/rest/v1/${table}${query ? `?${query}` : ""}`;
 }
 
 export async function getUserByOpenId(openId: string) {
-  const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
-    return undefined;
-  }
+  const rows = await supabaseRequest<RawUser[]>(restPath("app_users", `open_id=eq.${encodeURIComponent(openId)}&limit=1`));
+  return rows[0] ? mapUser(rows[0]) : undefined;
+}
 
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+export async function getUserById(id: number) {
+  const rows = await supabaseRequest<RawUser[]>(restPath("app_users", `id=eq.${id}&limit=1`));
+  return rows[0] ? mapUser(rows[0]) : undefined;
+}
 
-  return result.length > 0 ? result[0] : undefined;
+export async function listUsers() {
+  const rows = await supabaseRequest<RawUser[]>(restPath("app_users", "order=created_at.desc"));
+  return rows.map(mapUser);
+}
+
+async function findAuthUserByEmail(email: string) {
+  const data = await supabaseRequest<{ users: Array<{ id: string; email?: string }> }>("/auth/v1/admin/users?per_page=1000");
+  return data.users.find((user) => user.email?.toLowerCase() === email.toLowerCase()) ?? null;
+}
+
+async function createOrGetAuthUser(input: { email: string; password: string; name: string }) {
+  const existing = await findAuthUserByEmail(input.email);
+  if (existing) return existing;
+  const created = await supabaseRequest<{ id: string; email?: string }>("/auth/v1/admin/users", {
+    method: "POST",
+    body: JSON.stringify({ email: input.email, password: input.password, email_confirm: true, user_metadata: { name: input.name } }),
+  });
+  return created;
+}
+
+async function upsertProfile(input: { authUserId: string; email: string; name: string; role: AppRole; loginMethod?: string }) {
+  const openId = `supabase:${input.authUserId}`;
+  const rows = await supabaseRequest<RawUser[]>(restPath("app_users", "on_conflict=auth_user_id"), {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+    body: JSON.stringify({
+      auth_user_id: input.authUserId,
+      open_id: openId,
+      email: input.email.toLowerCase(),
+      name: input.name,
+      role: input.role,
+      login_method: input.loginMethod ?? "local",
+      last_signed_in: new Date().toISOString(),
+    }),
+  });
+  return mapUser(rows[0]);
+}
+
+export async function createInitialAdmin() {
+  const email = "tadkrah@gmail.com";
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  if (!password) throw new Error("Initial admin password is unavailable");
+  const authUser = await createOrGetAuthUser({ email, password, name: "System Administrator" });
+  return upsertProfile({ authUserId: authUser.id, email, name: "System Administrator", role: "admin" });
+}
+
+export async function createLocalUser(input: { email: string; password: string; name: string; role: AppRole }) {
+  const authUser = await createOrGetAuthUser(input);
+  return upsertProfile({ authUserId: authUser.id, email: input.email, name: input.name, role: input.role });
+}
+
+export async function localLogin(input: { email: string; password: string }) {
+  const { url, key } = getConfig();
+  const response = await fetch(`${url}/auth/v1/token?grant_type=password`, {
+    method: "POST",
+    headers: { apikey: key, "Content-Type": "application/json" },
+    body: JSON.stringify({ email: input.email, password: input.password }),
+  });
+  if (!response.ok) throw new Error("Invalid email or password");
+  const data = await response.json() as { user: { id: string; email?: string; user_metadata?: { name?: string } } };
+  const user = await getUserByOpenId(`supabase:${data.user.id}`);
+  if (!user || !user.isActive) throw new Error("User account is unavailable");
+  await supabaseRequest(restPath("app_users", `id=eq.${user.id}`), {
+    method: "PATCH",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify({ last_signed_in: new Date().toISOString() }),
+  });
+  return user;
+}
+
+export async function updateUserRole(input: { id: number; role: AppRole }) {
+  const rows = await supabaseRequest<RawUser[]>(restPath("app_users", `id=eq.${input.id}`), {
+    method: "PATCH",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify({ role: input.role }),
+  });
+  if (!rows[0]) throw new Error("User not found");
+  return mapUser(rows[0]);
+}
+
+export async function upsertUser(user: Partial<AppUser> & { openId: string }): Promise<void> {
+  const existing = await getUserByOpenId(user.openId);
+  if (!existing) throw new Error("Only Supabase local users are supported");
+  await supabaseRequest(restPath("app_users", `id=eq.${existing.id}`), {
+    method: "PATCH",
+    body: JSON.stringify({ last_signed_in: new Date().toISOString() }),
+  });
 }
 
 type RecordPayload = {
@@ -101,194 +179,129 @@ type RecordPayload = {
   resultData: Record<string, unknown>;
 };
 
-async function requireDb() {
-  const db = await getDb();
-  if (!db) throw new Error("Database is unavailable");
-  return db;
+async function getRequiredValidationSettings(deviceKey: string) {
+  const rows = await supabaseRequest<Array<{ settings: Record<string, unknown> }>>(restPath("validation_settings", `device_key=eq.${encodeURIComponent(deviceKey)}&limit=1`));
+  if (!rows[0]) throw new Error("Controlled validation settings have not been provisioned for this instrument");
+  return rows[0].settings;
 }
 
-async function writeAuditEvent(input: {
-  recordId: number;
-  actorUserId: number;
-  action: "created" | "updated" | "approved" | "rejected" | "exported";
-  previousStatus?: string | null;
-  nextStatus?: string | null;
-  summary: string;
-  metadata?: Record<string, unknown>;
-}) {
-  const db = await requireDb();
-  await db.insert(auditEvents).values({
-    validationRecordId: input.recordId,
-    actorUserId: input.actorUserId,
-    action: input.action,
-    previousStatus: input.previousStatus ?? null,
-    nextStatus: input.nextStatus ?? null,
-    summary: input.summary,
-    metadata: input.metadata,
-  });
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") return `{${Object.keys(value as Record<string, unknown>).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`).join(",")}}`;
+  return JSON.stringify(value);
+}
+
+export function assertControlledSettingsMatch(submittedSettings: unknown, controlledSettings: Record<string, unknown>) {
+  if (!submittedSettings || canonicalJson(submittedSettings) !== canonicalJson(controlledSettings)) {
+    throw new Error("Validation result does not match the current controlled Supabase settings");
+  }
+}
+
+type ValidationRecordRow = {
+  id: number; instrument_key: string; instrument_name: string; instrument_id: string; sop_number: string; form_number: string;
+  result_status: "pass" | "fail"; lifecycle_status: "draft" | "approved" | "rejected"; result_data: Record<string, unknown>;
+  pharmacist_name: string; validated_by_user_id: number; approved_by_user_id: number | null; approved_at: string | null; created_at: string; updated_at: string;
+};
+
+function mapRecord(row: ValidationRecordRow) {
+  return { id: Number(row.id), instrumentKey: row.instrument_key, instrumentName: row.instrument_name, instrumentId: row.instrument_id, sopNumber: row.sop_number, formNumber: row.form_number, resultStatus: row.result_status, lifecycleStatus: row.lifecycle_status, resultData: row.result_data, pharmacistName: row.pharmacist_name, validatedByUserId: Number(row.validated_by_user_id), approvedByUserId: row.approved_by_user_id ? Number(row.approved_by_user_id) : null, approvedAt: row.approved_at ? new Date(row.approved_at) : null, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at) };
+}
+
+async function writeAuditEvent(input: { recordId: number; actorUserId: number; action: "created" | "updated" | "approved" | "rejected" | "exported"; previousStatus?: string | null; nextStatus?: string | null; summary: string; metadata?: Record<string, unknown> }) {
+  await supabaseRequest(restPath("audit_events"), { method: "POST", body: JSON.stringify({ validation_record_id: input.recordId, actor_user_id: input.actorUserId, action: input.action, previous_status: input.previousStatus ?? null, next_status: input.nextStatus ?? null, summary: input.summary, metadata: input.metadata ?? null }) });
 }
 
 export async function createValidationRecord(input: RecordPayload & { userId: number }) {
-  const db = await requireDb();
-  const created = await db.insert(validationRecords).values({
-    ...input,
-    lifecycleStatus: "draft",
-    validatedByUserId: input.userId,
-  });
-  const recordId = Number(created[0].insertId);
-  await writeAuditEvent({
-    recordId,
-    actorUserId: input.userId,
-    action: "created",
-    nextStatus: "draft",
-    summary: createRecordSummary(input.instrumentId, input.resultStatus),
-    metadata: { resultStatus: input.resultStatus, sopNumber: input.sopNumber },
-  });
-  return getValidationRecordById(recordId);
+  const controlledSettings = await getRequiredValidationSettings(input.instrumentKey);
+  assertControlledSettingsMatch(input.resultData.controlledSettings, controlledSettings);
+  assertServerEvaluatedResult(input.instrumentKey, input.resultData, controlledSettings, input.resultStatus);
+  const rows = await supabaseRequest<ValidationRecordRow[]>(restPath("validation_records"), { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ instrument_key: input.instrumentKey, instrument_name: input.instrumentName, instrument_id: input.instrumentId, sop_number: input.sopNumber, form_number: input.formNumber, result_status: input.resultStatus, result_data: { ...input.resultData, controlledSettings }, pharmacist_name: input.pharmacistName, validated_by_user_id: input.userId }) });
+  const record = mapRecord(rows[0]);
+  await writeAuditEvent({ recordId: record.id, actorUserId: input.userId, action: "created", nextStatus: "draft", summary: createRecordSummary(input.instrumentId, input.resultStatus), metadata: { resultStatus: input.resultStatus, sopNumber: input.sopNumber } });
+  return record;
 }
 
 export async function updateValidationRecord(input: RecordPayload & { id: number; userId: number }) {
-  const db = await requireDb();
-  await db.update(validationRecords).set({
-    instrumentKey: input.instrumentKey,
-    instrumentName: input.instrumentName,
-    instrumentId: input.instrumentId,
-    sopNumber: input.sopNumber,
-    formNumber: input.formNumber,
-    resultStatus: input.resultStatus,
-    pharmacistName: input.pharmacistName,
-    resultData: input.resultData,
-  }).where(eq(validationRecords.id, input.id));
-  await writeAuditEvent({
-    recordId: input.id,
-    actorUserId: input.userId,
-    action: "updated",
-    previousStatus: "draft",
-    nextStatus: "draft",
-    summary: updateRecordSummary(input.instrumentId, input.resultStatus),
-    metadata: { resultStatus: input.resultStatus, sopNumber: input.sopNumber },
-  });
-  return getValidationRecordById(input.id);
+  const controlledSettings = await getRequiredValidationSettings(input.instrumentKey);
+  assertControlledSettingsMatch(input.resultData.controlledSettings, controlledSettings);
+  assertServerEvaluatedResult(input.instrumentKey, input.resultData, controlledSettings, input.resultStatus);
+  const rows = await supabaseRequest<ValidationRecordRow[]>(restPath("validation_records", `id=eq.${input.id}`), { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ instrument_key: input.instrumentKey, instrument_name: input.instrumentName, instrument_id: input.instrumentId, sop_number: input.sopNumber, form_number: input.formNumber, result_status: input.resultStatus, result_data: { ...input.resultData, controlledSettings }, pharmacist_name: input.pharmacistName, updated_at: new Date().toISOString() }) });
+  const record = mapRecord(rows[0]);
+  await writeAuditEvent({ recordId: input.id, actorUserId: input.userId, action: "updated", previousStatus: "draft", nextStatus: "draft", summary: updateRecordSummary(input.instrumentId, input.resultStatus), metadata: { resultStatus: input.resultStatus, sopNumber: input.sopNumber } });
+  return record;
 }
 
 export async function approveValidationRecord(input: { id: number; decision: "approved" | "rejected"; userId: number }) {
-  const db = await requireDb();
   const record = await getValidationRecordById(input.id);
   if (!record) throw new Error("Validation record not found");
   if (record.lifecycleStatus !== "draft") throw new Error("Validation record has already been decided");
-  await db.update(validationRecords).set({
-    lifecycleStatus: input.decision,
-    approvedByUserId: input.userId,
-    approvedAt: new Date(),
-  }).where(eq(validationRecords.id, input.id));
-  await db.insert(recordApprovals).values({
-    validationRecordId: input.id,
-    approverUserId: input.userId,
-    decision: input.decision,
-  });
-  await writeAuditEvent({
-    recordId: input.id,
-    actorUserId: input.userId,
-    action: input.decision,
-    previousStatus: record.lifecycleStatus,
-    nextStatus: input.decision,
-    summary: decisionSummary(record.instrumentId, input.decision),
-    metadata: { resultStatus: record.resultStatus },
-  });
-  return getValidationRecordById(input.id);
+  const rows = await supabaseRequest<ValidationRecordRow[]>(restPath("validation_records", `id=eq.${input.id}`), { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ lifecycle_status: input.decision, approved_by_user_id: input.userId, approved_at: new Date().toISOString(), updated_at: new Date().toISOString() }) });
+  await supabaseRequest(restPath("record_approvals"), { method: "POST", body: JSON.stringify({ validation_record_id: input.id, approver_user_id: input.userId, decision: input.decision }) });
+  await writeAuditEvent({ recordId: input.id, actorUserId: input.userId, action: input.decision, previousStatus: record.lifecycleStatus, nextStatus: input.decision, summary: decisionSummary(record.instrumentId, input.decision), metadata: { resultStatus: record.resultStatus } });
+  return mapRecord(rows[0]);
 }
 
 export async function markValidationRecordExported(input: { id: number; userId: number }) {
   const record = await getValidationRecordById(input.id);
   if (!record) throw new Error("Validation record not found");
-  await writeAuditEvent({
-    recordId: input.id,
-    actorUserId: input.userId,
-    action: "exported",
-    previousStatus: record.lifecycleStatus,
-    nextStatus: record.lifecycleStatus,
-    summary: exportRecordSummary(record.instrumentId),
-  });
+  await writeAuditEvent({ recordId: input.id, actorUserId: input.userId, action: "exported", previousStatus: record.lifecycleStatus, nextStatus: record.lifecycleStatus, summary: exportRecordSummary(record.instrumentId) });
   return { success: true } as const;
 }
 
 export async function getValidationRecordById(id: number) {
-  const db = await requireDb();
-  const records = await db.select().from(validationRecords).where(eq(validationRecords.id, id)).limit(1);
-  return records[0] ?? null;
+  const rows = await supabaseRequest<ValidationRecordRow[]>(restPath("validation_records", `id=eq.${id}&limit=1`));
+  return rows[0] ? mapRecord(rows[0]) : null;
 }
 
-export async function listValidationRecords(input: { userId: number; isAdmin: boolean; status?: "draft" | "approved" | "rejected" }) {
-  const db = await requireDb();
-  const baseQuery = input.isAdmin
-    ? db.select().from(validationRecords).orderBy(desc(validationRecords.createdAt)).limit(100)
-    : db.select().from(validationRecords).where(eq(validationRecords.validatedByUserId, input.userId)).orderBy(desc(validationRecords.createdAt)).limit(100);
-  const records = await baseQuery;
-  return input.status ? records.filter((record) => record.lifecycleStatus === input.status) : records;
+export async function listValidationRecords(input: { userId: number; canViewAll: boolean; status?: "draft" | "approved" | "rejected" }) {
+  const parts = ["order=created_at.desc", "limit=100"];
+  if (!input.canViewAll) parts.push(`validated_by_user_id=eq.${input.userId}`);
+  if (input.status) parts.push(`lifecycle_status=eq.${input.status}`);
+  const rows = await supabaseRequest<ValidationRecordRow[]>(restPath("validation_records", parts.join("&")));
+  return rows.map(mapRecord);
 }
 
 export async function getAuditTrail(recordId: number) {
-  const db = await requireDb();
-  return db.select({
-    id: auditEvents.id,
-    validationRecordId: auditEvents.validationRecordId,
-    action: auditEvents.action,
-    previousStatus: auditEvents.previousStatus,
-    nextStatus: auditEvents.nextStatus,
-    summary: auditEvents.summary,
-    metadata: auditEvents.metadata,
-    createdAt: auditEvents.createdAt,
-    actorName: users.name,
-    actorRole: users.role,
-  }).from(auditEvents).leftJoin(users, eq(auditEvents.actorUserId, users.id)).where(eq(auditEvents.validationRecordId, recordId)).orderBy(desc(auditEvents.createdAt));
+  const events = await supabaseRequest<Array<{ id: number; validation_record_id: number; actor_user_id: number; action: string; previous_status: string | null; next_status: string | null; summary: string; metadata: Record<string, unknown> | null; created_at: string }>>(restPath("audit_events", `validation_record_id=eq.${recordId}&order=created_at.desc`));
+  const actorIds = Array.from(new Set(events.map((event) => event.actor_user_id)));
+  const users = actorIds.length ? await supabaseRequest<RawUser[]>(restPath("app_users", `id=in.(${actorIds.join(",")})`)) : [];
+  const userMap = new Map(users.map((user) => [Number(user.id), user]));
+  return events.map((event) => ({ id: Number(event.id), validationRecordId: Number(event.validation_record_id), action: event.action, previousStatus: event.previous_status, nextStatus: event.next_status, summary: event.summary, metadata: event.metadata, createdAt: new Date(event.created_at), actorName: userMap.get(Number(event.actor_user_id))?.name ?? null, actorRole: userMap.get(Number(event.actor_user_id))?.role ?? null }));
 }
 
-export type InstrumentProfilePayload = {
-  instrumentKey: string;
-  nameAr: string;
-  nameEn: string;
-  instrumentId: string;
-  sopNumber: string;
-  manufacturer: string;
-  model: string;
-  serialNumber: string;
-  formNumber: string;
-  accent: string;
-};
+export type InstrumentProfilePayload = { instrumentKey: string; nameAr: string; nameEn: string; instrumentId: string; sopNumber: string; manufacturer: string; model: string; serialNumber: string; formNumber: string; accent: string };
 
-export async function listInstrumentProfiles() {
-  const db = await requireDb();
-  return db.select().from(instrumentProfiles).orderBy(instrumentProfiles.instrumentKey);
-}
+type InstrumentProfileRow = { id: number; instrument_key: string; name_ar: string; name_en: string; instrument_id: string; sop_number: string; manufacturer: string; model: string; serial_number: string; form_number: string; accent: string; updated_by_user_id: number; updated_at: string };
+function mapProfile(row: InstrumentProfileRow) { return { id: Number(row.id), instrumentKey: row.instrument_key, nameAr: row.name_ar, nameEn: row.name_en, instrumentId: row.instrument_id, sopNumber: row.sop_number, manufacturer: row.manufacturer, model: row.model, serialNumber: row.serial_number, formNumber: row.form_number, accent: row.accent, updatedByUserId: Number(row.updated_by_user_id), updatedAt: new Date(row.updated_at) }; }
+
+export async function listInstrumentProfiles() { const rows = await supabaseRequest<InstrumentProfileRow[]>(restPath("instrument_profiles", "order=instrument_key.asc")); return rows.map(mapProfile); }
 
 export async function upsertInstrumentProfile(input: InstrumentProfilePayload & { userId: number }) {
-  const db = await requireDb();
-  const { userId, ...nextData } = input;
-  const existingRows = await db.select().from(instrumentProfiles).where(eq(instrumentProfiles.instrumentKey, input.instrumentKey)).limit(1);
-  const previous = existingRows[0] ?? null;
-  if (previous) {
-    await db.update(instrumentProfiles).set({ ...nextData, updatedByUserId: userId }).where(eq(instrumentProfiles.id, previous.id));
-  } else {
-    await db.insert(instrumentProfiles).values({ ...nextData, updatedByUserId: userId });
-  }
-  await db.insert(instrumentChangeEvents).values({
-    instrumentKey: input.instrumentKey,
-    editorUserId: userId,
-    previousData: previous ? { nameAr: previous.nameAr, nameEn: previous.nameEn, instrumentId: previous.instrumentId, sopNumber: previous.sopNumber, manufacturer: previous.manufacturer, model: previous.model, serialNumber: previous.serialNumber, formNumber: previous.formNumber, accent: previous.accent } : null,
-    nextData,
-  });
-  const profile = await db.select().from(instrumentProfiles).where(eq(instrumentProfiles.instrumentKey, input.instrumentKey)).limit(1);
-  return profile[0] ?? null;
+  const existing = (await supabaseRequest<InstrumentProfileRow[]>(restPath("instrument_profiles", `instrument_key=eq.${encodeURIComponent(input.instrumentKey)}&limit=1`)))[0];
+  const nextData = { instrument_key: input.instrumentKey, name_ar: input.nameAr, name_en: input.nameEn, instrument_id: input.instrumentId, sop_number: input.sopNumber, manufacturer: input.manufacturer, model: input.model, serial_number: input.serialNumber, form_number: input.formNumber, accent: input.accent, updated_by_user_id: input.userId, updated_at: new Date().toISOString() };
+  const rows = await supabaseRequest<InstrumentProfileRow[]>(existing ? restPath("instrument_profiles", `id=eq.${existing.id}`) : restPath("instrument_profiles"), { method: existing ? "PATCH" : "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(nextData) });
+  await supabaseRequest(restPath("instrument_change_events"), { method: "POST", body: JSON.stringify({ instrument_key: input.instrumentKey, editor_user_id: input.userId, previous_data: existing ?? null, next_data: nextData }) });
+  return mapProfile(rows[0]);
 }
 
 export async function listInstrumentChanges(instrumentKey: string) {
-  const db = await requireDb();
-  return db.select({
-    id: instrumentChangeEvents.id,
-    instrumentKey: instrumentChangeEvents.instrumentKey,
-    previousData: instrumentChangeEvents.previousData,
-    nextData: instrumentChangeEvents.nextData,
-    createdAt: instrumentChangeEvents.createdAt,
-    editorName: users.name,
-  }).from(instrumentChangeEvents).leftJoin(users, eq(instrumentChangeEvents.editorUserId, users.id)).where(eq(instrumentChangeEvents.instrumentKey, instrumentKey)).orderBy(desc(instrumentChangeEvents.createdAt));
+  const events = await supabaseRequest<Array<{ id: number; instrument_key: string; editor_user_id: number; previous_data: Record<string, unknown> | null; next_data: Record<string, unknown>; created_at: string }>>(restPath("instrument_change_events", `instrument_key=eq.${encodeURIComponent(instrumentKey)}&order=created_at.desc`));
+  const ids = Array.from(new Set(events.map((event) => event.editor_user_id)));
+  const users = ids.length ? await supabaseRequest<RawUser[]>(restPath("app_users", `id=in.(${ids.join(",")})`)) : [];
+  const names = new Map(users.map((user) => [Number(user.id), user.name]));
+  return events.map((event) => ({ id: Number(event.id), instrumentKey: event.instrument_key, previousData: event.previous_data, nextData: event.next_data, createdAt: new Date(event.created_at), editorName: names.get(Number(event.editor_user_id)) ?? null }));
+}
+
+export async function listValidationSettings() {
+  const rows = await supabaseRequest<Array<{ device_key: string; settings: Record<string, unknown>; updated_by_user_id: number | null; updated_at: string }>>(restPath("validation_settings", "order=device_key.asc"));
+  return rows.map((row) => ({ deviceKey: row.device_key, settings: row.settings, updatedByUserId: row.updated_by_user_id, updatedAt: new Date(row.updated_at) }));
+}
+
+export async function upsertValidationSettings(input: { deviceKey: string; settings: Record<string, unknown>; userId: number }) {
+  const rows = await supabaseRequest<Array<{ device_key: string; settings: Record<string, unknown>; updated_by_user_id: number; updated_at: string }>>(restPath("validation_settings", "on_conflict=device_key"), {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+    body: JSON.stringify({ device_key: input.deviceKey, settings: input.settings, updated_by_user_id: input.userId, updated_at: new Date().toISOString() }),
+  });
+  return { deviceKey: rows[0].device_key, settings: rows[0].settings, updatedByUserId: rows[0].updated_by_user_id, updatedAt: new Date(rows[0].updated_at) };
 }
