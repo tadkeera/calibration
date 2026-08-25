@@ -1,0 +1,52 @@
+name: Build Windows Desktop Installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "desktop/**"
+      - "server/**"
+      - "client/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/build-windows-desktop.yml"
+
+jobs:
+  build-installer:
+    name: Build NSIS installer on Windows
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Stage offline visual assets
+        shell: pwsh
+        run: |
+          $assetDir = Join-Path $env:GITHUB_WORKSPACE "..\desktop-assets"
+          New-Item -ItemType Directory -Force -Path $assetDir | Out-Null
+          $base = "https://yemqvalid-plhaumbg.manus.space/manus-storage"
+          $assets = @(
+            "yemen-qc-official-header-logo_68fac21a.png",
+            "yemen-qc-official-report-header_14217543.png",
+            "yemen-qc-lab-dashboard-hero_bfac1693.jpg",
+            "yemen-qc-lab-refractometer_7698add3.jpg"
+          )
+          foreach ($asset in $assets) { Invoke-WebRequest "$base/$asset" -OutFile (Join-Path $assetDir $asset) }
+      - name: Build signed-ready NSIS installer
+        run: pnpm build:desktop:ci
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Miayar-Windows-Installer
+          path: release/Miayar-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 30
