@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { appRouter } from "./routers";
+import * as db from "./db";
 import { COOKIE_NAME } from "../shared/const";
 import type { TrpcContext } from "./_core/context";
 
@@ -42,6 +43,7 @@ function createAuthContext(): { ctx: TrpcContext; clearedCookies: CookieCall[] }
 }
 
 describe("auth.logout", () => {
+  afterEach(() => vi.restoreAllMocks());
   it("clears the session cookie and reports success", async () => {
     const { ctx, clearedCookies } = createAuthContext();
     const caller = appRouter.createCaller(ctx);
@@ -58,5 +60,14 @@ describe("auth.logout", () => {
       httpOnly: true,
       path: "/",
     });
+  });
+
+  it("clears the current session after a successful password change", async () => {
+    vi.spyOn(db, "changeLocalPassword").mockResolvedValue({ success: true });
+    const { ctx, clearedCookies } = createAuthContext();
+    const result = await appRouter.createCaller(ctx).auth.changePassword({ currentPassword: "current-password", newPassword: "new-password" });
+    expect(result).toEqual({ success: true, reloginRequired: true });
+    expect(clearedCookies[0]).toMatchObject({ name: COOKIE_NAME, options: { maxAge: -1, httpOnly: true } });
+    expect(db.changeLocalPassword).toHaveBeenCalledWith({ userId: 1, currentPassword: "current-password", newPassword: "new-password" });
   });
 });

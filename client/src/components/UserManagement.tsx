@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ShieldPlus, UserCog, Users } from "lucide-react";
+import { ShieldPlus, ToggleLeft, ToggleRight, UserCog, Users } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 
@@ -20,6 +20,7 @@ export function UserManagement({ language }: { language: Language }) {
   const users = trpc.users.list.useQuery();
   const create = trpc.users.create.useMutation({ onSuccess: async () => { setEmail(""); setName(""); setPassword(""); await utils.users.list.invalidate(); toast.success(language === "ar" ? "تمت إضافة المستخدم." : "User added."); } });
   const updateRole = trpc.users.updateRole.useMutation({ onSuccess: () => utils.users.list.invalidate() });
+  const setActive = trpc.users.setActive.useMutation({ onSuccess: async () => { await utils.users.list.invalidate(); toast.success(language === "ar" ? "تم تحديث حالة الحساب." : "Account status updated."); } });
   const ar = language === "ar";
 
   return <section className="user-management page-enter">
@@ -34,7 +35,7 @@ export function UserManagement({ language }: { language: Language }) {
         {create.error && <p className="login-error">{ar ? "تعذرت إضافة المستخدم. قد يكون البريد مستخدمًا بالفعل." : "User could not be added. The email may already exist."}</p>}
         <button className="primary-button" type="submit" disabled={create.isPending}><ShieldPlus size={16} /> {ar ? "إضافة المستخدم" : "Add user"}</button>
       </form>
-      <section className="users-list-card"><div className="user-card-title"><UserCog size={20} /><div><span className="eyebrow">{ar ? "الحسابات الحالية" : "Current accounts"}</span><h2>{ar ? "الأدوار التشغيلية" : "Operational roles"}</h2></div></div>{users.isLoading ? <p>{ar ? "جارٍ تحميل المستخدمين..." : "Loading users..."}</p> : <div className="users-list">{users.data?.map((user) => <article key={user.id}><div><strong>{user.name ?? user.email}</strong><span>{user.email}</span></div><label><span>{ar ? "الدور" : "Role"}</span><select value={user.role} onChange={(event) => updateRole.mutate({ id: user.id, role: event.target.value as Role })} disabled={updateRole.isPending}>{(["admin", "user", "viewer"] as Role[]).map((value) => <option key={value} value={value}>{roleText[language][value]}</option>)}</select></label></article>)}</div>}</section>
+      <section className="users-list-card"><div className="user-card-title"><UserCog size={20} /><div><span className="eyebrow">{ar ? "الحسابات الحالية" : "Current accounts"}</span><h2>{ar ? "الأدوار وحالة الوصول" : "Roles & access status"}</h2></div></div>{users.isLoading ? <p>{ar ? "جارٍ تحميل المستخدمين..." : "Loading users..."}</p> : <div className="users-list">{users.data?.map((user) => <article key={user.id} className={!user.isActive ? "user-inactive" : ""}><div><strong>{user.name ?? user.email}</strong><span>{user.email}</span><small className={user.isActive ? "account-state active" : "account-state inactive"}>{user.isActive ? (ar ? "نشط" : "Active") : (ar ? "معطّل" : "Disabled")}</small></div><label><span>{ar ? "الدور" : "Role"}</span><select value={user.role} onChange={(event) => updateRole.mutate({ id: user.id, role: event.target.value as Role })} disabled={updateRole.isPending || !user.isActive}>{(["admin", "user", "viewer"] as Role[]).map((value) => <option key={value} value={value}>{roleText[language][value]}</option>)}</select></label><button type="button" className={user.isActive ? "quiet-button user-state-button" : "secondary-button user-state-button"} onClick={() => setActive.mutate({ id: user.id, isActive: !user.isActive })} disabled={setActive.isPending}>{user.isActive ? <ToggleRight size={17} /> : <ToggleLeft size={17} />}{user.isActive ? (ar ? "تعطيل" : "Disable") : (ar ? "إعادة التفعيل" : "Reactivate")}</button></article>)}</div>}</section>
     </div>
     <section className="role-guide"><h2>{ar ? "مصفوفة الصلاحيات" : "Role matrix"}</h2><div><p><strong>Admin</strong><span>{ar ? "إدارة المستخدمين، اعتماد أو رفض السجلات، تعديل الحدود وبيانات الأجهزة." : "Manage users, approve or reject records, and edit limits and instruments."}</span></p><p><strong>User</strong><span>{ar ? "إدخال وحفظ السجلات وتعديل بيانات الأجهزة دون تعديل الحدود أو الاعتماد." : "Enter and save records and edit instrument data, without changing limits or approving."}</span></p><p><strong>Viewer</strong><span>{ar ? "عرض السجلات وبيانات الأجهزة فقط دون تنفيذ أي تعديل." : "View records and instrument data only, without making changes."}</span></p></div>
     </section>

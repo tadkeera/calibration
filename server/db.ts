@@ -159,6 +159,67 @@ export async function updateUserRole(input: { id: number; role: AppRole }) {
   return mapUser(rows[0]);
 }
 
+function localAuthUserId(user: AppUser) {
+  const authUserId = user.openId.replace(/^supabase:/, "");
+  if (!authUserId || authUserId === user.openId) throw new Error("Only local Supabase users can manage passwords");
+  return authUserId;
+}
+
+async function updateAuthUser(authUserId: string, body: Record<string, unknown>) {
+  return supabaseRequest<{ id: string }>(`/auth/v1/admin/users/${encodeURIComponent(authUserId)}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function changeLocalPassword(input: { userId: number; currentPassword: string; newPassword: string }) {
+  const user = await getUserById(input.userId);
+  if (!user?.email || !user.isActive) throw new Error("User account is unavailable");
+  const verifiedUser = await localLogin({ email: user.email, password: input.currentPassword });
+  if (verifiedUser.id !== user.id) throw new Error("Current password is invalid");
+  await updateAuthUser(localAuthUserId(user), { password: input.newPassword });
+  return { success: true } as const;
+}
+
+export async function requestPasswordRecovery(input: { email: string; redirectTo: string }) {
+  const { url, key } = getConfig();
+  const response = await fetch(`${url}/auth/v1/recover`, {
+    method: "POST",
+    headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ email: input.email, redirect_to: input.redirectTo }),
+  });
+  if (!response.ok) throw new Error("Password recovery request could not be started");
+  return { success: true } as const;
+}
+
+export async function completePasswordRecovery(input: { recoveryToken: string; newPassword: string }) {
+  const { url, key } = getConfig();
+  const response = await fetch(`${url}/auth/v1/user`, {
+    method: "PUT",
+    headers: { apikey: key, Authorization: `Bearer ${input.recoveryToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ password: input.newPassword }),
+  });
+  if (!response.ok) throw new Error("Password recovery link is invalid or expired");
+  return { success: true } as const;
+}
+
+export async function updateUserActiveState(input: { id: number; isActive: boolean; actorUserId: number }) {
+  if (input.id === input.actorUserId) throw new Error("Administrators cannot disable their own account");
+  const target = await getUserById(input.id);
+  if (!target) throw new Error("User not found");
+  if (!input.isActive && target.role === "admin") {
+    const activeAdminCount = (await listUsers()).filter((user) => user.role === "admin" && user.isActive).length;
+    if (activeAdminCount <= 1) throw new Error("At least one active administrator is required");
+  }
+  const rows = await supabaseRequest<RawUser[]>(restPath("app_users", `id=eq.${input.id}`), {
+    method: "PATCH",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify({ is_active: input.isActive }),
+  });
+  if (!rows[0]) throw new Error("User not found");
+  return mapUser(rows[0]);
+}
+
 export async function upsertUser(user: Partial<AppUser> & { openId: string }): Promise<void> {
   const existing = await getUserByOpenId(user.openId);
   if (!existing) throw new Error("Only Supabase local users are supported");
@@ -253,12 +314,54 @@ export async function getValidationRecordById(id: number) {
   return rows[0] ? mapRecord(rows[0]) : null;
 }
 
-export async function listValidationRecords(input: { userId: number; canViewAll: boolean; status?: "draft" | "approved" | "rejected" }) {
-  const parts = ["order=created_at.desc", "limit=100"];
+export type RecordFilters = {
+  instrumentKey?: string;
+  resultStatus?: "pass" | "fail";
+  lifecycleStatus?: "draft" | "approved" | "rejected";
+  dateFrom?: string;
+  dateTo?: string;
+};
+
+function recordFilterParts(input: { userId: number; canViewAll: boolean } & RecordFilters) {
+  const parts = ["order=created_at.desc", "limit=500"];
   if (!input.canViewAll) parts.push(`validated_by_user_id=eq.${input.userId}`);
-  if (input.status) parts.push(`lifecycle_status=eq.${input.status}`);
+  if (input.instrumentKey) parts.push(`instrument_key=eq.${encodeURIComponent(input.instrumentKey)}`);
+  if (input.resultStatus) parts.push(`result_status=eq.${input.resultStatus}`);
+  if (input.lifecycleStatus) parts.push(`lifecycle_status=eq.${input.lifecycleStatus}`);
+  if (input.dateFrom) parts.push(`created_at=gte.${encodeURIComponent(`${input.dateFrom}T00:00:00.000Z`)}`);
+  if (input.dateTo) {
+    const nextDay = new Date(`${input.dateTo}T00:00:00.000Z`);
+    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+    parts.push(`created_at=lt.${encodeURIComponent(nextDay.toISOString())}`);
+  }
+  return parts;
+}
+
+export async function listValidationRecords(input: { userId: number; canViewAll: boolean } & RecordFilters) {
+  const parts = recordFilterParts(input);
   const rows = await supabaseRequest<ValidationRecordRow[]>(restPath("validation_records", parts.join("&")));
   return rows.map(mapRecord);
+}
+
+export function summarizeValidationRecords(records: Array<{ instrumentKey: string; instrumentName: string; resultStatus: "pass" | "fail"; lifecycleStatus: "draft" | "approved" | "rejected" }>) {
+  const total = records.length;
+  const pass = records.filter((record) => record.resultStatus === "pass").length;
+  const fail = total - pass;
+  const draft = records.filter((record) => record.lifecycleStatus === "draft").length;
+  const approved = records.filter((record) => record.lifecycleStatus === "approved").length;
+  const rejected = records.filter((record) => record.lifecycleStatus === "rejected").length;
+  const instruments = Array.from(records.reduce((map, record) => {
+    const current = map.get(record.instrumentKey) ?? { instrumentKey: record.instrumentKey, instrumentName: record.instrumentName, total: 0, pass: 0, fail: 0 };
+    current.total += 1;
+    if (record.resultStatus === "pass") current.pass += 1; else current.fail += 1;
+    map.set(record.instrumentKey, current);
+    return map;
+  }, new Map<string, { instrumentKey: string; instrumentName: string; total: number; pass: number; fail: number }>()).values()).sort((a, b) => b.total - a.total);
+  return { total, pass, fail, draft, approved, rejected, passRate: total ? Math.round((pass / total) * 1000) / 10 : 0, approvalRate: total ? Math.round((approved / total) * 1000) / 10 : 0, instruments };
+}
+
+export async function getValidationRecordSummary(input: { userId: number; canViewAll: boolean } & RecordFilters) {
+  return summarizeValidationRecords(await listValidationRecords(input));
 }
 
 export async function getAuditTrail(recordId: number) {

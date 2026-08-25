@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createLocalUser, listUsers, updateUserRole } from "../db";
+import { createLocalUser, listUsers, updateUserActiveState, updateUserRole } from "../db";
 import { adminProcedure, router } from "../_core/trpc";
 
 const roleSchema = z.enum(["admin", "user", "viewer"]);
@@ -12,4 +12,7 @@ export const usersRouter = router({
   updateRole: adminProcedure
     .input(z.object({ id: z.number().int().positive(), role: roleSchema }))
     .mutation(({ input }) => updateUserRole(input)),
+  setActive: adminProcedure
+    .input(z.object({ id: z.number().int().positive(), isActive: z.boolean() }))
+    .mutation(({ ctx, input }) => updateUserActiveState({ ...input, actorUserId: ctx.user.id })),
 });

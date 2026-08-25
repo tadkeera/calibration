@@ -5,6 +5,7 @@ import {
   createValidationRecord,
   getAuditTrail,
   getValidationRecordById,
+  getValidationRecordSummary,
   listValidationRecords,
   markValidationRecordExported,
   updateValidationRecord,
@@ -22,6 +23,13 @@ const recordPayloadSchema = z.object({
   pharmacistName: z.string().min(1).max(255),
   resultData: resultDataSchema,
 });
+const recordFiltersSchema = z.object({
+  instrumentKey: z.string().min(1).max(64).optional(),
+  resultStatus: z.enum(["pass", "fail"]).optional(),
+  lifecycleStatus: z.enum(["draft", "approved", "rejected"]).optional(),
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+}).optional();
 
 async function requireRecordAccess(recordId: number, user: { id: number; role: "user" | "admin" | "viewer" }) {
   const record = await getValidationRecordById(recordId);
@@ -34,8 +42,12 @@ async function requireRecordAccess(recordId: number, user: { id: number; role: "
 
 export const recordsRouter = router({
   list: protectedProcedure
-    .input(z.object({ status: z.enum(["draft", "approved", "rejected"]).optional() }).optional())
-    .query(({ ctx, input }) => listValidationRecords({ userId: ctx.user.id, canViewAll: ctx.user.role === "admin" || ctx.user.role === "viewer", status: input?.status })),
+    .input(recordFiltersSchema)
+    .query(({ ctx, input }) => listValidationRecords({ userId: ctx.user.id, canViewAll: ctx.user.role === "admin" || ctx.user.role === "viewer", ...input })),
+
+  summary: protectedProcedure
+    .input(recordFiltersSchema)
+    .query(({ ctx, input }) => getValidationRecordSummary({ userId: ctx.user.id, canViewAll: ctx.user.role === "admin" || ctx.user.role === "viewer", ...input })),
 
   get: protectedProcedure
     .input(z.object({ id: z.number().int().positive() }))
