@@ -2,7 +2,7 @@
 import { jsPDF } from "jspdf";
 import type { CalibrationResult, Device } from "@/lib/qc";
 
-const officialHeaderUrl = "/manus-storage/yemen-qc-official-report-header_4f137299.png";
+const officialHeaderProcedureUrl = "/api/trpc/assets.officialReportHeaderUrl";
 
 const testTranslations: Record<string, string> = {
   "حرارة الحمام المائي": "Water bath temperature",
@@ -99,17 +99,18 @@ const toDataUrl = async (url: string) => {
   });
 };
 
-function fallbackHeader(doc: jsPDF) {
-  doc.setDrawColor(24, 91, 75);
-  doc.setLineWidth(0.35);
-  doc.rect(8, 8, 194, 37.7);
-  doc.setFont("times", "bold");
-  doc.setFontSize(11);
-  doc.text("REPUBLIC OF YEMEN", 16, 18);
-  doc.text("NATIONAL QUALITY CONTROL LABORATORY — ADEN", 105, 30, { align: "center" });
-  doc.setFont("times", "normal");
-  doc.setFontSize(7.5);
-  doc.text("SUPREME BOARD FOR DRUGS & MEDICAL APPLIANCES", 105, 36, { align: "center" });
+async function loadOfficialHeader() {
+  try {
+    const response = await fetch(officialHeaderProcedureUrl);
+    if (!response.ok) throw new Error(`Unable to obtain the official report header URL (${response.status}).`);
+    const payload = await response.json() as { result?: { data?: { json?: { url?: string } } } };
+    const url = payload.result?.data?.json?.url;
+    if (!url) throw new Error("The official report header URL is empty.");
+    return await toDataUrl(url);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`تعذر تحميل الأكليشة الرسمية الأصلية. لم يتم إنشاء PDF دونها. ${reason}`);
+  }
 }
 
 function line(doc: jsPDF, x1: number, y1: number, x2: number, y2: number, width = 0.22) {
@@ -243,8 +244,7 @@ function standardDeviation(values: number[]) {
 function continuationPage(doc: jsPDF, headerImage: string, title: string) {
   doc.addPage();
   doc.setLineWidth(0.35); doc.rect(5, 5, 200, 287); doc.rect(5.8, 5.8, 198.4, 285.4);
-  if (headerImage) doc.addImage(headerImage, "PNG", 8, 8, 194, 37.7);
-  else fallbackHeader(doc);
+  doc.addImage(headerImage, "PNG", 8, 8, 194, 37.7);
   doc.setFont("times", "bolditalic"); doc.setFontSize(12); doc.text(title, 105, 52, { align: "center" });
 }
 
@@ -476,15 +476,9 @@ function signatureBlock(doc: jsPDF, y: number, input: OfficialPdfInput) {
 
 export async function downloadOfficialPdf(input: OfficialPdfInput) {
   const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
-  let headerImage: string | null = null;
-  try {
-    headerImage = await toDataUrl(officialHeaderUrl);
-  } catch (error) {
-    console.warn("[Official PDF] The header image could not be loaded; using the formal text header instead.", error);
-  }
+  const headerImage = await loadOfficialHeader();
   doc.setLineWidth(0.35); doc.rect(5, 5, 200, 287); doc.rect(5.8, 5.8, 198.4, 285.4);
-  if (headerImage) doc.addImage(headerImage, "PNG", 8, 8, 194, 37.7);
-  else fallbackHeader(doc);
+  doc.addImage(headerImage, "PNG", 8, 8, 194, 37.7);
   const reportTitle = input.device.key === "hplc" ? "Flow Rate Accuracy Report" : "Validation Record";
   doc.setFont("times", "bolditalic"); doc.setFontSize(13); doc.text(reportTitle, 105, 52, { align: "center" });
   const metaY = 55;
@@ -496,11 +490,9 @@ export async function downloadOfficialPdf(input: OfficialPdfInput) {
   ];
   metadata.forEach((row, rowIndex) => row.forEach((value, columnIndex) => cell(doc, 10 + columns.slice(0, columnIndex).reduce((a, b) => a + b, 0), metaY + rowIndex * 6, columns[columnIndex], 6, value, { bold: columnIndex % 2 === 0, italic: columnIndex % 2 === 1, fontSize: 8 })));
   const contentStart = metaY + 22;
-  const printableHeader = headerImage ?? "";
-  const endY = input.device.key === "polarimeter" ? polarimeterLayout(doc, input.result, contentStart) : input.device.key === "dissolution" ? dissolutionLayout(doc, input.result, contentStart) : input.device.key === "hplc" ? hplcLayout(doc, input, printableHeader, contentStart) : genericLayout(doc, input, contentStart, printableHeader, reportTitle);
+  const endY = input.device.key === "polarimeter" ? polarimeterLayout(doc, input.result, contentStart) : input.device.key === "dissolution" ? dissolutionLayout(doc, input.result, contentStart) : input.device.key === "hplc" ? hplcLayout(doc, input, headerImage, contentStart) : genericLayout(doc, input, contentStart, headerImage, reportTitle);
   if (endY > 255) {
-    if (headerImage) continuationPage(doc, printableHeader, `${reportTitle} — Approval`);
-    else { doc.addPage(); fallbackHeader(doc); doc.setFont("times", "bolditalic"); doc.setFontSize(12); doc.text(`${reportTitle} — Approval`, 105, 52, { align: "center" }); }
+    continuationPage(doc, headerImage, `${reportTitle} — Approval`);
     signatureBlock(doc, 262, input);
   } else {
     signatureBlock(doc, Math.max(endY + 3, 262), input);

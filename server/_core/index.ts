@@ -37,7 +37,13 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   if (process.env.QC_STORAGE_MODE === "local") {
     const assetDirectory = process.env.QC_DESKTOP_ASSETS_DIR;
-    if (assetDirectory) app.use("/manus-storage", express.static(path.resolve(assetDirectory), { fallthrough: false, maxAge: "7d" }));
+    if (assetDirectory) {
+      const resolvedAssetDirectory = path.resolve(assetDirectory);
+      app.get("/api/trpc/official-report-header", (_req, res) => {
+        res.sendFile(path.join(resolvedAssetDirectory, "yemen-qc-official-report-header_14217543.png"));
+      });
+      app.use("/manus-storage", express.static(resolvedAssetDirectory, { fallthrough: false, maxAge: "7d" }));
+    }
   } else {
     registerStorageProxy(app);
   }

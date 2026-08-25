@@ -40,7 +40,12 @@ for _attempt in $(seq 1 30); do
 done
 
 grep -q "Server running on" "$server_log"
-curl --fail --silent --show-error "http://127.0.0.1:$port/" >/dev/null
-curl --noproxy "*" --fail --silent --show-error "http://$lan_ip:$port/" >/dev/null
+actual_port="$(grep -oE 'Server running on http://[^:]+:[0-9]+/' "$server_log" | tail -n 1 | sed -E 's#.*:([0-9]+)/#\1#')"
+curl --fail --silent --show-error "http://127.0.0.1:$actual_port/" >/dev/null
+curl --noproxy "*" --fail --silent --show-error "http://$lan_ip:$actual_port/" >/dev/null
+curl --fail --silent --show-error "http://127.0.0.1:$actual_port/api/trpc/assets.officialReportHeaderUrl" -o "$work_dir/header-url.json"
+grep -q "manus-storage/yemen-qc-official-report-header_14217543.png" "$work_dir/header-url.json"
+curl --fail --silent --show-error "http://127.0.0.1:$actual_port/manus-storage/yemen-qc-official-report-header_14217543.png" -o "$work_dir/official-header.png"
+cmp "$work_dir/official-header.png" "/home/ubuntu/desktop-assets/yemen-qc-official-report-header_14217543.png"
 
-printf 'Offline host smoke test passed on localhost and LAN address %s:%s\n' "$lan_ip" "$port"
+printf 'Offline host smoke test passed on localhost and LAN address %s:%s\n' "$lan_ip" "$actual_port"
