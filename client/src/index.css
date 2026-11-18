@@ -94,3 +94,146 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .analytics-export-actions { display: flex; align-items: center; gap: 7px; }.analytics-export-actions .secondary-button { min-height: 31px; padding: 6px 9px; font-size: 10px; }.activity-filter-panel, .admin-activity-register { margin-bottom: 18px; padding: 19px 21px; border: 1px solid #D7E3D8; background: #FFFEFA; border-radius: 7px 18px 7px 18px; box-shadow: 0 10px 24px rgba(28,65,50,.04); }.activity-filter-fields { display: grid; grid-template-columns: minmax(220px,1.4fr) repeat(2,minmax(150px,1fr)); gap: 11px; }.activity-list { display: grid; }.activity-list article { display: grid; grid-template-columns: 34px 1fr auto; gap: 12px; align-items: start; padding: 15px 0; border-bottom: 1px dashed #DDE7DE; }.activity-list article:last-child { border-bottom: 0; }.activity-icon { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #FBF4E7; color: #9A6C2D; }.activity-icon.success { background: #E6F3E7; color: #247246; }.activity-icon.danger { background: #F9E8E6; color: #AA4438; }.activity-list strong { color: #34564A; font-size: 12px; }.activity-list p { margin: 3px 0; color: #61766B; font-size: 11px; }.activity-list small, .activity-list time { color: #86958C; font-size: 10px; }.activity-list time { white-space: nowrap; }
 @media (max-width: 1050px) { .record-filter-fields { grid-template-columns: repeat(3, minmax(0,1fr)); }.activity-filter-fields { grid-template-columns: repeat(2,minmax(0,1fr)); }.analytics-kpis { grid-template-columns: repeat(2,1fr); }.analytics-kpis article:nth-child(3) { border-inline-start: 0; border-top: 1px solid #E1E9E0; }.analytics-kpis article:nth-child(4) { border-top: 1px solid #E1E9E0; } }
 @media (max-width: 620px) { .record-filter-panel, .record-analytics, .activity-filter-panel, .admin-activity-register { padding: 16px; }.record-filter-fields, .activity-filter-fields { grid-template-columns: 1fr; }.analytics-heading { align-items: flex-start; }.analytics-export-actions { flex-wrap: wrap; justify-content: flex-end; }.analytics-kpis { grid-template-columns: 1fr; }.analytics-kpis article { border-inline-start: 0; border-top: 1px solid #E1E9E0; }.analytics-kpis article:first-child { border-top: 0; }.instrument-breakdown article { grid-template-columns: 1fr; gap: 7px; }.instrument-breakdown article small { grid-row: 1; justify-self: end; }.activity-list article { grid-template-columns: 30px 1fr; }.activity-list time { grid-column: 2; } }
+
+/*Polarimeter validation workflow*/
+.polarimeter-workflow{display:grid;gap:16px;min-width:0;color:#183a31;}
+.polarimeter-workflow-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:2px 1px 4px;}
+.polarimeter-workflow-heading h2{margin:5px 0 5px;color:#173e34;font-size:20px;}
+.polarimeter-workflow-heading p, .polarimeter-intro{margin:0;color:#64766d;font-size:13px;line-height:1.75;}
+.polarimeter-stepper{display:grid;grid-template-columns:repeat(9, minmax(92px, 1fr));gap:7px;overflow-x:auto;padding:2px 1px 6px;}
+.polarimeter-step{min-width:90px;display:flex;align-items:center;gap:8px;padding:9px 8px;background:#fbfcf8;border:1px solid #dce4dc;border-radius:10px 4px 10px 4px;color:#60736a;text-align:left;}
+.polarimeter-step:hover{border-color:#9eb8a7;background:#f3f7f1;}
+.polarimeter-step.active{background:#e6efe7;border-color:#79a18a;color:#0c5a4c;box-shadow:0 4px 12px rgba(12, 90, 76, 0.08);}
+.polarimeter-step.done .polarimeter-step-number{background:#ddeee1;color:#237442;}
+.polarimeter-step-number{width:27px;height:27px;flex:0 0 auto;display:grid;place-items:center;border-radius:50%;background:#eef1eb;color:#74847a;}
+.polarimeter-step-label{display:grid;gap:1px;min-width:0;}
+.polarimeter-step-label small{font-size:8px;letter-spacing:0.08em;color:#9a7a4d;}
+.polarimeter-step-label strong{font-size:10px;white-space:nowrap;}
+.polarimeter-step-panel{min-width:0;background:#fffefa;border:1px solid #d7e3d8;border-radius:8px 18px 8px 18px;overflow:hidden;}
+.polarimeter-panel-header{display:flex;align-items:center;gap:11px;padding:17px 20px;background:#f6f8f3;border-bottom:1px solid #e0e6df;}
+.polarimeter-panel-header h3{margin:3px 0 0;font-size:16px;color:#244b40;}
+.polarimeter-panel-icon{width:36px;height:36px;display:grid;place-items:center;border-radius:10px 4px 10px 4px;background:#e1ebe2;color:#0c5a4c;}
+.polarimeter-panel-header .polarimeter-step-status{margin-left:auto;}
+.polarimeter-step-content{display:grid;gap:16px;padding:20px;}
+.polarimeter-step-status{display:inline-flex;align-items:center;gap:7px;color:#687b70;font-size:10px;font-weight:700;white-space:nowrap;}
+.polarimeter-step-status i{width:7px;height:7px;border-radius:50%;background:#aab5ac;}
+.polarimeter-step-status.complete i{background:#3c8a58;box-shadow:0 0 0 3px #e1efe3;}
+.polarimeter-step-status.pending i{background:#c28b3c;}
+.polarimeter-alert{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1px solid #d6e1d8;background:#f4f7f2;border-left:3px solid #719981;border-radius:7px;color:#53695e;font-size:12px;line-height:1.65;}
+.polarimeter-alert svg{flex:0 0 auto;margin-top:1px;color:#8c7145;}
+.polarimeter-alert.warning{background:#fbf5e9;border-color:#e8d5ae;border-left-color:#b88238;color:#705a36;}
+.polarimeter-alert strong{color:#75551e;}
+.polarimeter-alert .quiet-button{margin-left:auto;white-space:nowrap;font-size:11px;}
+.polarimeter-equipment-grid{display:grid;grid-template-columns:repeat(3, minmax(0, 1fr));gap:10px;margin:0;}
+.polarimeter-equipment-grid > div{min-width:0;padding:11px 12px;border:1px solid #e0e7df;border-radius:8px;background:#fafbf7;}
+.polarimeter-equipment-grid dt{font-size:10px;color:#7b8b81;}
+.polarimeter-equipment-grid dd{margin:5px 0 0;font-size:12px;font-weight:700;color:#27493e;overflow-wrap:anywhere;}
+.polarimeter-muted{margin:0;color:#77867d;font-size:11px;line-height:1.7;}
+.polarimeter-protocol-banner{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:13px 15px;border:1px solid #e4d7bb;border-radius:8px;background:#fbf7ee;color:#6a5635;font-size:12px;}
+.polarimeter-protocol-banner strong{color:#40594b;}
+.protocol-state{padding:5px 8px;border-radius:999px;text-transform:uppercase;font-size:9px;font-weight:800;letter-spacing:0.05em;}
+.protocol-state.pending{background:#f3e3c4;color:#8a5c1d;}
+.protocol-state.approved{background:#ddeee1;color:#237442;}
+.protocol-grid{grid-template-columns:repeat(4, minmax(0, 1fr));}
+.polarimeter-form-grid{display:grid;grid-template-columns:repeat(3, minmax(0, 1fr));gap:12px;}
+.polarimeter-form-grid .field, .polarimeter-step-content > .field{margin:0;}
+.polarimeter-formula, .polarimeter-equation{display:grid;gap:7px;padding:13px 15px;border:1px solid #dde6dd;border-radius:8px;background:#f6f8f3;}
+.polarimeter-formula strong, .polarimeter-equation strong{color:#34574a;font-size:12px;}
+.polarimeter-formula code, .polarimeter-equation code{color:#0c5a4c;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:13px;font-weight:700;}
+.polarimeter-formula span, .polarimeter-equation span{color:#78877e;font-size:10px;}
+.polarimeter-validation-errors{padding:11px 14px;border:1px solid #f0d1cb;background:#fcf0ee;border-radius:7px;color:#8d4035;font-size:11px;}
+.polarimeter-validation-errors strong{font-size:12px;}
+.polarimeter-validation-errors ul{margin:6px 0 0;padding-left:18px;line-height:1.65;}
+.polarimeter-valid{display:flex;align-items:center;gap:6px;margin:0;color:#277747;font-size:11px;}
+.polarimeter-table-wrap{min-width:0;border:1px solid #e0e6df;border-radius:8px;overflow:hidden;}
+.polarimeter-table-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;background:#f6f8f3;border-bottom:1px solid #e0e6df;}
+.polarimeter-table-heading strong{display:block;font-size:12px;color:#335448;}
+.polarimeter-table-heading small{display:block;margin-top:3px;color:#7d8c83;font-size:10px;}
+.polarimeter-table{width:100%;border-collapse:collapse;min-width:760px;text-align:left;}
+.polarimeter-table th{padding:9px 11px;background:#fbfcf8;border-bottom:1px solid #e0e6df;color:#687b70;font-size:10px;}
+.polarimeter-table td{padding:8px 11px;border-bottom:1px solid #edf0ec;color:#3e5b50;font-size:11px;white-space:nowrap;}
+.polarimeter-table tr:last-child td{border-bottom:0;}
+.polarimeter-table td input{width:100%;min-width:90px;padding:7px 8px;border:1px solid #d7e0d8;border-radius:6px;background:#fff;color:#244b40;font-size:12px;}
+.polarimeter-table td input:focus{border-color:#7ca28a;}
+.polarimeter-inline-status{font-size:9px;font-weight:800;}
+.polarimeter-inline-status.pass{color:#237442;}
+.polarimeter-inline-status.fail{color:#a33c30;}
+.polarimeter-inline-status.pending{color:#9b762f;}
+.polarimeter-stat-grid{display:grid;grid-template-columns:repeat(3, minmax(0, 1fr));gap:9px;}
+.polarimeter-stat{display:grid;gap:5px;padding:10px 12px;border:1px solid #e1e7e0;border-radius:7px;background:#fbfcf8;}
+.polarimeter-stat span{color:#7b8b81;font-size:10px;}
+.polarimeter-stat strong{color:#244b40;font-size:12px;overflow-wrap:anywhere;}
+.polarimeter-review-grid{display:grid;grid-template-columns:repeat(3, minmax(0, 1fr));gap:10px;}
+.polarimeter-review-card{display:grid;gap:8px;padding:13px;border:1px solid #dfe7df;background:#fbfcf8;border-radius:8px;}
+.polarimeter-review-card h4{margin:0;color:#2b4d41;font-size:13px;}
+.polarimeter-review-card .polarimeter-step-status{white-space:normal;}
+.polarimeter-failure{margin:0;color:#a33c30;font-size:11px;line-height:1.6;}
+.polarimeter-summary{padding:14px 16px;background:#f6f8f3;border:1px solid #dfe7df;border-radius:8px;color:#54685e;}
+.polarimeter-summary h4{margin:0 0 9px;color:#34574a;font-size:13px;}
+.polarimeter-summary p{margin:5px 0;font-size:11px;line-height:1.65;}
+.polarimeter-calculate{justify-self:start;}
+.polarimeter-inline-message{margin:0;padding:9px 12px;border-radius:7px;background:#f6f1e6;color:#715c39;font-size:11px;}
+.polarimeter-workflow-notice{min-height:220px;align-content:center;justify-items:start;}
+.polarimeter-workflow-notice h4{margin:0;color:#294c40;font-size:15px;}
+.polarimeter-workflow-notice p{max-width:850px;margin:0;color:#65776d;font-size:12px;line-height:1.8;}
+.workflow-state{display:inline-flex;padding:6px 9px;border-radius:999px;background:#eef1eb;color:#687b70;font-size:9px;font-weight:800;letter-spacing:0.06em;}
+.workflow-state.blocked{background:#f9e9e4;color:#a33c30;}
+.workflow-state.pending{background:#f5edd9;color:#86642b;}
+.polarimeter-workflow-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:3px 1px;}
+.polarimeter-save-state{display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:7px;color:#64776c;font-size:10px;}
+.polarimeter-save-state svg{grid-row:span 2;color:#64806f;}
+.polarimeter-save-state small{grid-column:2;color:#98a39c;font-size:9px;}
+.polarimeter-nav-buttons{display:flex;gap:8px;}
+.polarimeter-chart-panel{min-height:340px;}
+.polarimeter-chart-legend{display:grid;gap:5px;color:#64766d;font-size:9px;}
+.polarimeter-chart-legend span{display:flex;align-items:center;gap:5px;white-space:nowrap;}
+.polarimeter-chart-legend i{display:inline-block;width:16px;height:2px;background:#b88238;}
+.polarimeter-chart-legend i.point{width:8px;height:8px;border-radius:50%;background:#0c5a4c;}
+.polarimeter-chart-metrics{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0;color:#567065;font-size:10px;}
+.polarimeter-chart-area{width:100%;height:250px;}
+.app-shell.english .polarimeter-workflow{text-align:left;}
+.app-shell.english .polarimeter-table{text-align:left;}
+@media (max-width: 900px){.polarimeter-stepper{grid-template-columns:repeat(9, minmax(88px, 1fr));}.polarimeter-equipment-grid, .protocol-grid{grid-template-columns:repeat(2, minmax(0, 1fr));}.polarimeter-form-grid{grid-template-columns:repeat(2, minmax(0, 1fr));}}
+@media (max-width: 620px){.polarimeter-workflow-heading{display:grid;}.polarimeter-panel-header{padding:14px;}.polarimeter-step-content{padding:14px;}.polarimeter-form-grid, .polarimeter-equipment-grid, .protocol-grid, .polarimeter-stat-grid, .polarimeter-review-grid{grid-template-columns:1fr;}.polarimeter-table-heading{align-items:flex-start;flex-direction:column;}.polarimeter-workflow-footer{align-items:flex-start;flex-direction:column;}.polarimeter-nav-buttons{width:100%;justify-content:space-between;}.polarimeter-alert{font-size:11px;}.polarimeter-stepper{padding-bottom:8px;}}
+.polarimeter-protocol-editor{margin-top:16px;padding:16px;border:1px solid #d9e3db;border-radius:9px;background:#fbfcf8;}
+.polarimeter-protocol-editor-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;}
+.polarimeter-protocol-editor-heading h3{margin:4px 0;color:#264a3f;font-size:15px;}
+.polarimeter-protocol-editor-heading p{max-width:720px;margin:0;color:#77867d;font-size:10px;line-height:1.65;}
+.polarimeter-protocol-config-grid{display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));gap:11px;margin-top:14px;}
+.polarimeter-protocol-config-grid .field{margin:0;}
+.polarimeter-checkbox-field{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border:1px solid #e0e7df;border-radius:7px;background:#fff;color:#54695e;font-size:11px;line-height:1.6;}
+.polarimeter-checkbox-field input{margin-top:3px;accent-color:#0c5a4c;}
+.polarimeter-protocol-editor-warning{display:flex;align-items:flex-start;gap:7px;margin:12px 0 0;padding:9px 10px;border-radius:7px;background:#fbf5e9;color:#785f34;font-size:10px;line-height:1.65;}
+.polarimeter-protocol-editor-warning svg{flex:0 0 auto;margin-top:1px;}
+.polarimeter-protocol-history{margin-top:10px;color:#53685e;font-size:10px;}
+.polarimeter-protocol-history summary{cursor:pointer;font-weight:700;}
+.polarimeter-protocol-history ol{padding-left:20px;line-height:1.7;}
+.polarimeter-protocol-history li{padding:2px 0;color:#74837a;}
+@media (max-width: 620px){.polarimeter-protocol-editor-heading{display:grid;}.polarimeter-protocol-config-grid{grid-template-columns:1fr;}}
+.approval-blocked-message{flex-basis:100%;max-width:260px;color:#8b5e2e;font-size:10px;line-height:1.5;}
+.approval-actions .primary-button:disabled{cursor:not-allowed;opacity:0.5;}
+.polarimeter-step-fields{width:100%;min-width:0;margin:0;padding:0;border:0;}
+
+/* Polarimeter controlled review, CAPA and retest panels. */
+.polarimeter-record-workflow{display:grid;gap:14px;margin:18px 0;padding:16px;border:1px solid #d9e3db;border-radius:10px;background:#fbfcf8;color:#24483d;text-align:left}
+.polarimeter-record-workflow>header h3{margin:4px 0;color:#23473b;font-size:17px}
+.polarimeter-record-workflow>header p,.polarimeter-record-workflow .muted-copy{color:#718078;font-size:11px;line-height:1.7}
+.polarimeter-record-workflow-card{display:grid;gap:12px;padding:14px;border:1px solid #e0e7df;border-radius:8px;background:#fff}
+.polarimeter-record-workflow-card h4{display:flex;align-items:center;gap:7px;margin:0;color:#2d5144;font-size:13px}
+.polarimeter-review-form,.polarimeter-deviation-card{display:grid;gap:10px}
+.polarimeter-record-workflow label{display:grid;gap:5px;color:#52685e;font-size:10px;font-weight:700}
+.polarimeter-record-workflow textarea,.polarimeter-record-workflow select,.polarimeter-record-workflow input{width:100%;min-width:0;padding:8px 9px;border:1px solid #d5e0d7;border-radius:6px;background:#fff;color:#25483d;font:inherit;font-size:11px}
+.polarimeter-record-workflow textarea{min-height:65px;resize:vertical}
+.polarimeter-record-workflow-card details summary{cursor:pointer;color:#5c7166;font-size:10px;font-weight:700}
+.polarimeter-review-history{padding:9px 10px;border-left:2px solid #9db9a4;background:#f7f9f5;color:#536a5f;font-size:10px;line-height:1.7}
+.polarimeter-review-history p{margin:4px 0}
+.polarimeter-deviation-card{padding:12px 0;border-top:1px solid #e6ebe5}
+.polarimeter-deviation-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#305144;font-size:12px}
+.polarimeter-deviation-evidence{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:0}
+.polarimeter-deviation-evidence>div{padding:9px;border:1px solid #e0e8df;border-radius:6px;background:#f8faf6;overflow-wrap:anywhere}
+.polarimeter-deviation-evidence dt{font-size:9px;color:#78877e}
+.polarimeter-deviation-evidence dd{margin:4px 0 0;font-size:11px;color:#294b40}
+.polarimeter-capa-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.polarimeter-deviation-audit p{margin:6px 0;color:#77857d;font-size:9px;line-height:1.6}
+.polarimeter-record-workflow .record-detail-actions{display:flex;gap:8px;flex-wrap:wrap}
+@media(max-width:700px){.polarimeter-capa-fields,.polarimeter-deviation-evidence{grid-template-columns:1fr}.polarimeter-record-workflow{padding:11px}.polarimeter-record-workflow-card{padding:11px}}

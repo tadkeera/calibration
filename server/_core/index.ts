@@ -6,6 +6,7 @@ import path from "node:path";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
+import { OFFICIAL_REPORT_HEADER_KEY } from "../officialHeader";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -39,8 +40,16 @@ async function startServer() {
     const assetDirectory = process.env.QC_DESKTOP_ASSETS_DIR;
     if (assetDirectory) {
       const resolvedAssetDirectory = path.resolve(assetDirectory);
-      app.get("/api/trpc/official-report-header", (_req, res) => {
-        res.sendFile(path.join(resolvedAssetDirectory, "yemen-qc-official-report-header_14217543.png"));
+      app.get("/api/trpc/assets.officialReportHeaderUrl", async (_req, res) => {
+        res.json({
+          result: {
+            data: {
+              json: {
+                url: `/manus-storage/${OFFICIAL_REPORT_HEADER_KEY}`,
+              },
+            },
+          },
+        });
       });
       app.use("/manus-storage", express.static(resolvedAssetDirectory, { fallthrough: false, maxAge: "7d" }));
     }
