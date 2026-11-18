@@ -1,64 +1,669 @@
 /** Design reminder: archived results are presented as an orderly register, with the audit trail treated as evidence rather than decoration. */
 import { useState } from "react";
-import { BarChart3, Check, Download, FileSpreadsheet, FileText, Filter, History, Loader2, RotateCcw, ShieldCheck, X } from "lucide-react";
+import {
+  BarChart3,
+  Check,
+  Download,
+  FileSpreadsheet,
+  FileText,
+  Filter,
+  History,
+  Loader2,
+  RotateCcw,
+  ShieldCheck,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { CalibrationResult, devices, findDevice } from "@/lib/qc";
 import { downloadOfficialPdf } from "@/lib/officialPdf";
 import { exportAnalyticsCsv, exportAnalyticsPdf } from "@/lib/analyticsExport";
+import { PolarimeterWorkflowPanel } from "@/components/PolarimeterWorkflowPanel";
 
 type Language = "ar" | "en";
 const copy = {
-  ar: { eyebrow: "الأرشيف المحفوظ", title: "سجل الفحوصات والاعتمادات", desc: "تعرض هذه الصفحة السجلات المرتبطة بحسابك. يرى المدير سجلات الفريق كاملة ويمكنه اعتماد المسودات أو رفضها.", loading: "جارٍ تحميل السجلات…", empty: "لا توجد سجلات محفوظة حتى الآن.", table: ["الجهاز", "النتيجة", "الحالة", "المنشئ", "التاريخ", "الإجراء"], open: "عرض", trail: "سجل التدقيق", approve: "اعتماد", reject: "رفض", pdf: "PDF رسمي", signIn: "سجل الدخول لاستعراض السجل المحفوظ.", pending: "مسودة", approved: "معتمد", rejected: "مرفوض", pass: "مطابق", fail: "فشل", noEvents: "لا توجد أحداث تدقيق بعد." },
-  en: { eyebrow: "SAVED ARCHIVE", title: "Validation records & approvals", desc: "This screen lists the records linked to your account. Administrators can view the team register and decide draft records.", loading: "Loading records…", empty: "No saved validation records yet.", table: ["Instrument", "Result", "State", "Owner", "Date", "Action"], open: "Open", trail: "Audit trail", approve: "Approve", reject: "Reject", pdf: "Official PDF", signIn: "Sign in to review saved records.", pending: "Draft", approved: "Approved", rejected: "Rejected", pass: "Pass", fail: "Fail", noEvents: "No audit events yet." },
+  ar: {
+    eyebrow: "الأرشيف المحفوظ",
+    title: "سجل الفحوصات والاعتمادات",
+    desc: "تعرض هذه الصفحة السجلات المرتبطة بحسابك. يرى المدير سجلات الفريق كاملة ويمكنه اعتماد المسودات أو رفضها.",
+    loading: "جارٍ تحميل السجلات…",
+    empty: "لا توجد سجلات محفوظة حتى الآن.",
+    table: ["الجهاز", "النتيجة", "الحالة", "المنشئ", "التاريخ", "الإجراء"],
+    open: "عرض",
+    trail: "سجل التدقيق",
+    approve: "اعتماد",
+    reject: "رفض",
+    pdf: "PDF رسمي",
+    signIn: "سجل الدخول لاستعراض السجل المحفوظ.",
+    pending: "مسودة",
+    approved: "معتمد",
+    rejected: "مرفوض",
+    pass: "مطابق",
+    fail: "فشل",
+    noEvents: "لا توجد أحداث تدقيق بعد.",
+  },
+  en: {
+    eyebrow: "SAVED ARCHIVE",
+    title: "Validation records & approvals",
+    desc: "This screen lists the records linked to your account. Administrators can view the team register and decide draft records.",
+    loading: "Loading records…",
+    empty: "No saved validation records yet.",
+    table: ["Instrument", "Result", "State", "Owner", "Date", "Action"],
+    open: "Open",
+    trail: "Audit trail",
+    approve: "Approve",
+    reject: "Reject",
+    pdf: "Official PDF",
+    signIn: "Sign in to review saved records.",
+    pending: "Draft",
+    approved: "Approved",
+    rejected: "Rejected",
+    pass: "Pass",
+    fail: "Fail",
+    noEvents: "No audit events yet.",
+  },
 } as const;
 
-function statusText(status: "draft" | "approved" | "rejected", language: Language) {
+function statusText(
+  status: "draft" | "approved" | "rejected",
+  language: Language
+) {
   const text = copy[language];
-  return status === "draft" ? text.pending : status === "approved" ? text.approved : text.rejected;
+  return status === "draft"
+    ? text.pending
+    : status === "approved"
+      ? text.approved
+      : text.rejected;
 }
 
-export function RecordHistory({ language, isAuthenticated, isAdmin, userName }: { language: Language; isAuthenticated: boolean; isAdmin: boolean; userName?: string | null }) {
+export function RecordHistory({
+  language,
+  isAuthenticated,
+  isAdmin,
+  currentUserId,
+  onStartRetest,
+}: {
+  language: Language;
+  isAuthenticated: boolean;
+  isAdmin: boolean;
+  currentUserId: number;
+  onStartRetest: (recordId: number, reason: string) => void;
+}) {
   const t = copy[language];
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [filters, setFilters] = useState<{ instrumentKey?: string; resultStatus?: "pass" | "fail"; lifecycleStatus?: "draft" | "approved" | "rejected"; dateFrom?: string; dateTo?: string }>({});
+  const [filters, setFilters] = useState<{
+    instrumentKey?: string;
+    resultStatus?: "pass" | "fail";
+    lifecycleStatus?: "draft" | "approved" | "rejected";
+    dateFrom?: string;
+    dateTo?: string;
+  }>({});
   const utils = trpc.useUtils();
-  const recordsQuery = trpc.records.list.useQuery(filters, { enabled: isAuthenticated });
-  const summaryQuery = trpc.records.summary.useQuery(filters, { enabled: isAuthenticated });
-  const selectedRecord = trpc.records.get.useQuery({ id: selectedId ?? 0 }, { enabled: Boolean(selectedId) && isAuthenticated });
-  const trailQuery = trpc.records.trail.useQuery({ id: selectedId ?? 0 }, { enabled: Boolean(selectedId) && isAuthenticated });
-  const decideMutation = trpc.records.decide.useMutation({ onSuccess: () => { utils.records.list.invalidate(); utils.records.summary.invalidate(); utils.records.get.invalidate(); utils.records.trail.invalidate(); toast.success(language === "ar" ? "تم تسجيل قرار الاعتماد في سجل التدقيق." : "Approval decision recorded in the audit trail."); } });
+  const recordsQuery = trpc.records.list.useQuery(filters, {
+    enabled: isAuthenticated,
+  });
+  const summaryQuery = trpc.records.summary.useQuery(filters, {
+    enabled: isAuthenticated,
+  });
+  const selectedRecord = trpc.records.get.useQuery(
+    { id: selectedId ?? 0 },
+    { enabled: Boolean(selectedId) && isAuthenticated }
+  );
+  const trailQuery = trpc.records.trail.useQuery(
+    { id: selectedId ?? 0 },
+    { enabled: Boolean(selectedId) && isAuthenticated }
+  );
+  const technicalReviewsQuery = trpc.records.technicalReviews.useQuery(
+    { id: selectedId ?? 0 },
+    { enabled: Boolean(selectedId) && isAuthenticated }
+  );
+  const decideMutation = trpc.records.decide.useMutation({
+    onSuccess: () => {
+      utils.records.list.invalidate();
+      utils.records.summary.invalidate();
+      utils.records.get.invalidate();
+      utils.records.trail.invalidate();
+      toast.success(
+        language === "ar"
+          ? "تم تسجيل قرار الاعتماد في سجل التدقيق."
+          : "Approval decision recorded in the audit trail."
+      );
+    },
+  });
   const exportedMutation = trpc.records.markExported.useMutation();
+  const selectedPolarimeterData =
+    selectedRecord.data?.instrumentKey === "polarimeter"
+      ? (
+          selectedRecord.data.resultData as {
+            polarimeterData?: {
+              protocolSnapshot?: { protocolStatus?: string };
+            };
+          }
+        ).polarimeterData
+      : undefined;
+  const latestTechnicalReview = technicalReviewsQuery.data?.at(-1);
+  const reviewBlocksApproval =
+    selectedRecord.data?.instrumentKey === "polarimeter" &&
+    (!latestTechnicalReview ||
+      latestTechnicalReview.decision !== "accepted" ||
+      latestTechnicalReview.outstandingIssues.length > 0 ||
+      latestTechnicalReview.recordVersion !==
+        selectedRecord.data.recordVersion ||
+      latestTechnicalReview.reviewerUserId === currentUserId ||
+      selectedRecord.data.validatedByUserId === currentUserId);
+  const approvalBlocked = selectedRecord.data
+    ? selectedRecord.data.resultStatus !== "pass" ||
+      (selectedRecord.data.instrumentKey === "polarimeter" &&
+        (selectedPolarimeterData?.protocolSnapshot?.protocolStatus !==
+          "approved" ||
+          reviewBlocksApproval))
+    : true;
+  const approvalBlockMessage =
+    selectedRecord.data?.resultStatus !== "pass"
+      ? "Failed technical results cannot be approved."
+      : selectedRecord.data?.instrumentKey === "polarimeter" &&
+          selectedPolarimeterData?.protocolSnapshot?.protocolStatus !==
+            "approved"
+        ? "Polarimeter SOP protocol verification is pending; formal approval is blocked."
+        : reviewBlocksApproval
+          ? "A current accepted technical review by a different user is required; the approver must differ from both analyst and reviewer."
+          : "";
 
   const exportPdf = async () => {
     const record = selectedRecord.data;
     if (!record) return;
     try {
-      const device = findDevice(record.instrumentKey as Parameters<typeof findDevice>[0]);
-      const filename = await downloadOfficialPdf({ device, result: record.resultData as unknown as CalibrationResult, pharmacistName: record.pharmacistName, lifecycleStatus: record.lifecycleStatus, approvedByName: record.approvedByUserId ? userName : null, approvedAt: record.approvedAt, language });
-      toast.success(language === "ar" ? `تم تنزيل التقرير الرسمي: ${filename}` : `Official report downloaded: ${filename}`);
+      const [reviewResponse, trailResponse] = await Promise.all([
+        record.instrumentKey === "polarimeter"
+          ? technicalReviewsQuery.refetch()
+          : Promise.resolve(null),
+        trailQuery.refetch(),
+      ]);
+      if (reviewResponse?.isError || trailResponse.isError)
+        throw new Error(
+          "Saved review or lifecycle audit data could not be loaded; PDF generation was stopped."
+        );
+      const decisionEvent = trailResponse.data?.find(
+        event => event.action === "approved" || event.action === "rejected"
+      );
+      const decisionReason =
+        decisionEvent?.metadata &&
+        typeof decisionEvent.metadata.reason === "string"
+          ? decisionEvent.metadata.reason
+          : null;
+      const device = findDevice(
+        record.instrumentKey as Parameters<typeof findDevice>[0]
+      );
+      const filename = await downloadOfficialPdf({
+        device,
+        result: record.resultData as unknown as CalibrationResult,
+        pharmacistName: record.pharmacistName,
+        lifecycleStatus: record.lifecycleStatus,
+        recordId: record.id,
+        approvedByName: decisionEvent?.actorName,
+        approvedByUserId: record.approvedByUserId,
+        approvedAt: record.approvedAt,
+        lifecycleDecisionReason: decisionReason,
+        validatedByUserId: record.validatedByUserId,
+        recordCreatedAt: record.createdAt,
+        technicalReview: reviewResponse?.data?.at(-1) ?? null,
+        retestOfRecordId: record.retestOfRecordId,
+        retestReason: record.retestReason,
+        language,
+      });
+      toast.success(
+        language === "ar"
+          ? `تم تنزيل التقرير الرسمي: ${filename}`
+          : `Official report downloaded: ${filename}`
+      );
       try {
         await exportedMutation.mutateAsync({ id: record.id });
         utils.records.trail.invalidate({ id: record.id });
       } catch (auditError) {
-        console.warn("[Official PDF] The PDF was downloaded but the export audit event could not be saved.", auditError);
+        console.warn(
+          "[Official PDF] The PDF was downloaded but the export audit event could not be saved.",
+          auditError
+        );
       }
     } catch (error) {
       console.error("[Official PDF] Failed to generate the report.", error);
-      toast.error(language === "ar" ? "تعذر إنشاء التقرير الرسمي. أعد المحاولة أو تحقق من اتصالك." : "The official report could not be generated. Please retry or check your connection.");
+      toast.error(
+        language === "ar"
+          ? "تعذر إنشاء التقرير الرسمي. أعد المحاولة أو تحقق من اتصالك."
+          : "The official report could not be generated. Please retry or check your connection."
+      );
     }
   };
 
   const exportAnalytics = async (format: "csv" | "pdf") => {
     if (!recordsQuery.data || !summaryQuery.data) return;
-    if (format === "csv") exportAnalyticsCsv(recordsQuery.data, summaryQuery.data, filters);
-    else await exportAnalyticsPdf(recordsQuery.data, summaryQuery.data, filters);
-    toast.success(language === "ar" ? `تم تنزيل التقرير التحليلي بصيغة ${format.toUpperCase()}.` : `Analytics report downloaded as ${format.toUpperCase()}.`);
+    if (format === "csv")
+      exportAnalyticsCsv(recordsQuery.data, summaryQuery.data, filters);
+    else
+      await exportAnalyticsPdf(recordsQuery.data, summaryQuery.data, filters);
+    toast.success(
+      language === "ar"
+        ? `تم تنزيل التقرير التحليلي بصيغة ${format.toUpperCase()}.`
+        : `Analytics report downloaded as ${format.toUpperCase()}.`
+    );
   };
 
   const ar = language === "ar";
-  const filterText = ar ? { title: "مرشحات السجل", device: "الجهاز", from: "من تاريخ", to: "إلى تاريخ", result: "النتيجة", approval: "حالة الاعتماد", all: "الكل", reset: "إعادة ضبط", analytics: "التحليل الإحصائي", total: "إجمالي السجلات", passRate: "نسبة المطابقة", approvalRate: "نسبة الاعتماد", openDrafts: "مسودات معلقة", breakdown: "الأداء حسب الجهاز", noAnalytics: "لا توجد بيانات تطابق المرشحات الحالية." } : { title: "Record filters", device: "Instrument", from: "From", to: "To", result: "Result", approval: "Approval state", all: "All", reset: "Reset", analytics: "Statistical analysis", total: "Total records", passRate: "Pass rate", approvalRate: "Approval rate", openDrafts: "Open drafts", breakdown: "Performance by instrument", noAnalytics: "No data matches the current filters." };
-  const setFilter = <K extends keyof typeof filters>(key: K, value: (typeof filters)[K]) => setFilters((current) => ({ ...current, [key]: value || undefined }));
-  if (!isAuthenticated) return <section className="archive-empty"><ShieldCheck size={25} /><div><span className="eyebrow">{t.eyebrow}</span><h2>{t.signIn}</h2></div></section>;
-  return <div className="page-enter records-page"><section className="page-topline"><div><span className="eyebrow">{t.eyebrow}</span><h1>{t.title}</h1><p>{t.desc}</p></div><div className="page-topline-icon"><History size={25} /></div></section><section className="record-filter-panel"><div className="record-filter-heading"><Filter size={19} /><strong>{filterText.title}</strong></div><div className="record-filter-fields"><label className="field"><span>{filterText.device}</span><select value={filters.instrumentKey ?? ""} onChange={(event) => setFilter("instrumentKey", event.target.value)}><option value="">{filterText.all}</option>{devices.map((device) => <option key={device.key} value={device.key}>{ar ? device.name : device.english}</option>)}</select></label><label className="field"><span>{filterText.from}</span><input type="date" value={filters.dateFrom ?? ""} onChange={(event) => setFilter("dateFrom", event.target.value)} /></label><label className="field"><span>{filterText.to}</span><input type="date" value={filters.dateTo ?? ""} onChange={(event) => setFilter("dateTo", event.target.value)} /></label><label className="field"><span>{filterText.result}</span><select value={filters.resultStatus ?? ""} onChange={(event) => setFilter("resultStatus", event.target.value === "" ? undefined : event.target.value as "pass" | "fail")}><option value="">{filterText.all}</option><option value="pass">{t.pass}</option><option value="fail">{t.fail}</option></select></label><label className="field"><span>{filterText.approval}</span><select value={filters.lifecycleStatus ?? ""} onChange={(event) => setFilter("lifecycleStatus", event.target.value === "" ? undefined : event.target.value as "draft" | "approved" | "rejected")}><option value="">{filterText.all}</option><option value="draft">{t.pending}</option><option value="approved">{t.approved}</option><option value="rejected">{t.rejected}</option></select></label></div><button className="quiet-button filter-reset" type="button" onClick={() => { setFilters({}); setSelectedId(null); }}><RotateCcw size={15} /> {filterText.reset}</button></section>{summaryQuery.data && <section className="record-analytics"><div className="analytics-heading"><div><span className="eyebrow">{filterText.analytics}</span><h2>{ar ? "مؤشرات السجلات المصفّاة" : "Filtered record indicators"}</h2></div><div className="analytics-export-actions"><button className="secondary-button" type="button" onClick={() => exportAnalytics("csv")} disabled={!recordsQuery.data?.length}><FileSpreadsheet size={15} /> CSV</button><button className="secondary-button" type="button" onClick={() => exportAnalytics("pdf")} disabled={!recordsQuery.data?.length}><FileText size={15} /> PDF</button><BarChart3 size={24} /></div></div><div className="analytics-kpis"><article><span>{filterText.total}</span><strong>{summaryQuery.data.total}</strong><small>{ar ? `${summaryQuery.data.pass} مطابق · ${summaryQuery.data.fail} فاشل` : `${summaryQuery.data.pass} pass · ${summaryQuery.data.fail} fail`}</small></article><article><span>{filterText.passRate}</span><strong>{summaryQuery.data.passRate}%</strong><small>{ar ? "وفق نتائج الفحص" : "from validation outcomes"}</small></article><article><span>{filterText.approvalRate}</span><strong>{summaryQuery.data.approvalRate}%</strong><small>{ar ? `${summaryQuery.data.approved} معتمد · ${summaryQuery.data.rejected} مرفوض` : `${summaryQuery.data.approved} approved · ${summaryQuery.data.rejected} rejected`}</small></article><article><span>{filterText.openDrafts}</span><strong>{summaryQuery.data.draft}</strong><small>{ar ? "بانتظار قرار إداري" : "awaiting an admin decision"}</small></article></div><div className="instrument-breakdown"><h3>{filterText.breakdown}</h3>{summaryQuery.data.instruments.length ? summaryQuery.data.instruments.map((instrument) => <article key={instrument.instrumentKey}><div><strong>{instrument.instrumentName}</strong><span>{instrument.total} {ar ? "سجل" : "records"}</span></div><div className="instrument-bar"><i style={{ width: `${instrument.total ? (instrument.pass / instrument.total) * 100 : 0}%` }} /></div><small>{instrument.pass} {ar ? "مطابق" : "pass"} · {instrument.fail} {ar ? "فاشل" : "fail"}</small></article>) : <p className="muted-copy">{filterText.noAnalytics}</p>}</div></section>}<section className="records-register">{recordsQuery.isLoading ? <div className="records-loading"><Loader2 className="animate-spin" size={19} /> {t.loading}</div> : recordsQuery.data?.length ? <div className="table-scroll"><table className="records-table"><thead><tr>{t.table.map((item) => <th key={item}>{item}</th>)}</tr></thead><tbody>{recordsQuery.data.map((record) => <tr key={record.id} className={selectedId === record.id ? "selected" : ""}><td><strong>{record.instrumentName}</strong><small>{record.instrumentId} · {record.sopNumber}</small></td><td><span className={record.resultStatus === "pass" ? "record-result pass" : "record-result fail"}>{record.resultStatus === "pass" ? <Check size={13} /> : <X size={13} />}{record.resultStatus === "pass" ? t.pass : t.fail}</span></td><td><span className={`lifecycle ${record.lifecycleStatus}`}>{statusText(record.lifecycleStatus, language)}</span></td><td>{record.pharmacistName}</td><td>{new Intl.DateTimeFormat(language === "ar" ? "ar-YE" : "en-GB", { dateStyle: "medium" }).format(new Date(record.createdAt))}</td><td><button className="record-open" onClick={() => setSelectedId(record.id)}>{t.open}</button></td></tr>)}</tbody></table></div> : <div className="records-empty"><FileText size={24} /><p>{t.empty}</p></div>}</section>{selectedRecord.data && <section className="record-detail"><div className="record-detail-header"><div><span className="eyebrow">{t.trail}</span><h2>{selectedRecord.data.instrumentName} <small>{selectedRecord.data.instrumentId}</small></h2></div><div className="record-detail-actions"><button className="secondary-button" onClick={exportPdf} disabled={exportedMutation.isPending}><Download size={16} /> {t.pdf}</button>{isAdmin && selectedRecord.data.lifecycleStatus === "draft" && <><button className="secondary-button decision-reject" onClick={() => decideMutation.mutate({ id: selectedRecord.data!.id, decision: "rejected" })}><X size={16} /> {t.reject}</button><button className="primary-button" onClick={() => decideMutation.mutate({ id: selectedRecord.data!.id, decision: "approved" })}><Check size={16} /> {t.approve}</button></>}</div></div><div className="audit-trail">{trailQuery.isLoading ? <Loader2 className="animate-spin" size={18} /> : trailQuery.data?.length ? trailQuery.data.map((event) => <article className="audit-event" key={event.id}><span className={`audit-dot ${event.action}`} /><div><strong>{event.summary}</strong><p>{event.actorName ? `${event.actorName} · ` : ""}{new Intl.DateTimeFormat(language === "ar" ? "ar-YE" : "en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(event.createdAt))}</p></div><span>{event.action}</span></article>) : <p className="muted-copy">{t.noEvents}</p>}</div></section>}</div>;
+  const filterText = ar
+    ? {
+        title: "مرشحات السجل",
+        device: "الجهاز",
+        from: "من تاريخ",
+        to: "إلى تاريخ",
+        result: "النتيجة",
+        approval: "حالة الاعتماد",
+        all: "الكل",
+        reset: "إعادة ضبط",
+        analytics: "التحليل الإحصائي",
+        total: "إجمالي السجلات",
+        passRate: "نسبة المطابقة",
+        approvalRate: "نسبة الاعتماد",
+        openDrafts: "مسودات معلقة",
+        breakdown: "الأداء حسب الجهاز",
+        noAnalytics: "لا توجد بيانات تطابق المرشحات الحالية.",
+      }
+    : {
+        title: "Record filters",
+        device: "Instrument",
+        from: "From",
+        to: "To",
+        result: "Result",
+        approval: "Approval state",
+        all: "All",
+        reset: "Reset",
+        analytics: "Statistical analysis",
+        total: "Total records",
+        passRate: "Pass rate",
+        approvalRate: "Approval rate",
+        openDrafts: "Open drafts",
+        breakdown: "Performance by instrument",
+        noAnalytics: "No data matches the current filters.",
+      };
+  const setFilter = <K extends keyof typeof filters>(
+    key: K,
+    value: (typeof filters)[K]
+  ) => setFilters(current => ({ ...current, [key]: value || undefined }));
+  if (!isAuthenticated)
+    return (
+      <section className="archive-empty">
+        <ShieldCheck size={25} />
+        <div>
+          <span className="eyebrow">{t.eyebrow}</span>
+          <h2>{t.signIn}</h2>
+        </div>
+      </section>
+    );
+  return (
+    <div className="page-enter records-page">
+      <section className="page-topline">
+        <div>
+          <span className="eyebrow">{t.eyebrow}</span>
+          <h1>{t.title}</h1>
+          <p>{t.desc}</p>
+        </div>
+        <div className="page-topline-icon">
+          <History size={25} />
+        </div>
+      </section>
+      <section className="record-filter-panel">
+        <div className="record-filter-heading">
+          <Filter size={19} />
+          <strong>{filterText.title}</strong>
+        </div>
+        <div className="record-filter-fields">
+          <label className="field">
+            <span>{filterText.device}</span>
+            <select
+              value={filters.instrumentKey ?? ""}
+              onChange={event => setFilter("instrumentKey", event.target.value)}
+            >
+              <option value="">{filterText.all}</option>
+              {devices.map(device => (
+                <option key={device.key} value={device.key}>
+                  {ar ? device.name : device.english}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>{filterText.from}</span>
+            <input
+              type="date"
+              value={filters.dateFrom ?? ""}
+              onChange={event => setFilter("dateFrom", event.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>{filterText.to}</span>
+            <input
+              type="date"
+              value={filters.dateTo ?? ""}
+              onChange={event => setFilter("dateTo", event.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>{filterText.result}</span>
+            <select
+              value={filters.resultStatus ?? ""}
+              onChange={event =>
+                setFilter(
+                  "resultStatus",
+                  event.target.value === ""
+                    ? undefined
+                    : (event.target.value as "pass" | "fail")
+                )
+              }
+            >
+              <option value="">{filterText.all}</option>
+              <option value="pass">{t.pass}</option>
+              <option value="fail">{t.fail}</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>{filterText.approval}</span>
+            <select
+              value={filters.lifecycleStatus ?? ""}
+              onChange={event =>
+                setFilter(
+                  "lifecycleStatus",
+                  event.target.value === ""
+                    ? undefined
+                    : (event.target.value as "draft" | "approved" | "rejected")
+                )
+              }
+            >
+              <option value="">{filterText.all}</option>
+              <option value="draft">{t.pending}</option>
+              <option value="approved">{t.approved}</option>
+              <option value="rejected">{t.rejected}</option>
+            </select>
+          </label>
+        </div>
+        <button
+          className="quiet-button filter-reset"
+          type="button"
+          onClick={() => {
+            setFilters({});
+            setSelectedId(null);
+          }}
+        >
+          <RotateCcw size={15} /> {filterText.reset}
+        </button>
+      </section>
+      {summaryQuery.data && (
+        <section className="record-analytics">
+          <div className="analytics-heading">
+            <div>
+              <span className="eyebrow">{filterText.analytics}</span>
+              <h2>
+                {ar ? "مؤشرات السجلات المصفّاة" : "Filtered record indicators"}
+              </h2>
+            </div>
+            <div className="analytics-export-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => exportAnalytics("csv")}
+                disabled={!recordsQuery.data?.length}
+              >
+                <FileSpreadsheet size={15} /> CSV
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => exportAnalytics("pdf")}
+                disabled={!recordsQuery.data?.length}
+              >
+                <FileText size={15} /> PDF
+              </button>
+              <BarChart3 size={24} />
+            </div>
+          </div>
+          <div className="analytics-kpis">
+            <article>
+              <span>{filterText.total}</span>
+              <strong>{summaryQuery.data.total}</strong>
+              <small>
+                {ar
+                  ? `${summaryQuery.data.pass} مطابق · ${summaryQuery.data.fail} فاشل`
+                  : `${summaryQuery.data.pass} pass · ${summaryQuery.data.fail} fail`}
+              </small>
+            </article>
+            <article>
+              <span>{filterText.passRate}</span>
+              <strong>{summaryQuery.data.passRate}%</strong>
+              <small>
+                {ar ? "وفق نتائج الفحص" : "from validation outcomes"}
+              </small>
+            </article>
+            <article>
+              <span>{filterText.approvalRate}</span>
+              <strong>{summaryQuery.data.approvalRate}%</strong>
+              <small>
+                {ar
+                  ? `${summaryQuery.data.approved} معتمد · ${summaryQuery.data.rejected} مرفوض`
+                  : `${summaryQuery.data.approved} approved · ${summaryQuery.data.rejected} rejected`}
+              </small>
+            </article>
+            <article>
+              <span>{filterText.openDrafts}</span>
+              <strong>{summaryQuery.data.draft}</strong>
+              <small>
+                {ar ? "بانتظار قرار إداري" : "awaiting an admin decision"}
+              </small>
+            </article>
+          </div>
+          <div className="instrument-breakdown">
+            <h3>{filterText.breakdown}</h3>
+            {summaryQuery.data.instruments.length ? (
+              summaryQuery.data.instruments.map(instrument => (
+                <article key={instrument.instrumentKey}>
+                  <div>
+                    <strong>{instrument.instrumentName}</strong>
+                    <span>
+                      {instrument.total} {ar ? "سجل" : "records"}
+                    </span>
+                  </div>
+                  <div className="instrument-bar">
+                    <i
+                      style={{
+                        width: `${instrument.total ? (instrument.pass / instrument.total) * 100 : 0}%`,
+                      }}
+                    />
+                  </div>
+                  <small>
+                    {instrument.pass} {ar ? "مطابق" : "pass"} ·{" "}
+                    {instrument.fail} {ar ? "فاشل" : "fail"}
+                  </small>
+                </article>
+              ))
+            ) : (
+              <p className="muted-copy">{filterText.noAnalytics}</p>
+            )}
+          </div>
+        </section>
+      )}
+      <section className="records-register">
+        {recordsQuery.isLoading ? (
+          <div className="records-loading">
+            <Loader2 className="animate-spin" size={19} /> {t.loading}
+          </div>
+        ) : recordsQuery.data?.length ? (
+          <div className="table-scroll">
+            <table className="records-table">
+              <thead>
+                <tr>
+                  {t.table.map(item => (
+                    <th key={item}>{item}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {recordsQuery.data.map(record => (
+                  <tr
+                    key={record.id}
+                    className={selectedId === record.id ? "selected" : ""}
+                  >
+                    <td>
+                      <strong>{record.instrumentName}</strong>
+                      <small>
+                        {record.instrumentId} · {record.sopNumber}
+                      </small>
+                    </td>
+                    <td>
+                      <span
+                        className={
+                          record.resultStatus === "pass"
+                            ? "record-result pass"
+                            : "record-result fail"
+                        }
+                      >
+                        {record.resultStatus === "pass" ? (
+                          <Check size={13} />
+                        ) : (
+                          <X size={13} />
+                        )}
+                        {record.resultStatus === "pass" ? t.pass : t.fail}
+                      </span>
+                    </td>
+                    <td>
+                      <span className={`lifecycle ${record.lifecycleStatus}`}>
+                        {statusText(record.lifecycleStatus, language)}
+                      </span>
+                    </td>
+                    <td>{record.pharmacistName}</td>
+                    <td>
+                      {new Intl.DateTimeFormat(
+                        language === "ar" ? "ar-YE" : "en-GB",
+                        { dateStyle: "medium" }
+                      ).format(new Date(record.createdAt))}
+                    </td>
+                    <td>
+                      <button
+                        className="record-open"
+                        onClick={() => setSelectedId(record.id)}
+                      >
+                        {t.open}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="records-empty">
+            <FileText size={24} />
+            <p>{t.empty}</p>
+          </div>
+        )}
+      </section>
+      {selectedRecord.data && (
+        <section className="record-detail">
+          <div className="record-detail-header">
+            <div>
+              <span className="eyebrow">{t.trail}</span>
+              <h2>
+                {selectedRecord.data.instrumentName}{" "}
+                <small>{selectedRecord.data.instrumentId}</small>
+              </h2>
+            </div>
+            <div className="record-detail-actions">
+              <button
+                className="secondary-button"
+                onClick={exportPdf}
+                disabled={exportedMutation.isPending}
+              >
+                <Download size={16} /> {t.pdf}
+              </button>
+              {isAdmin && selectedRecord.data.lifecycleStatus === "draft" && (
+                <>
+                  <button
+                    className="secondary-button decision-reject"
+                    onClick={() => {
+                      const reason =
+                        selectedRecord.data?.instrumentKey === "polarimeter"
+                          ? window
+                              .prompt("Enter the lifecycle rejection reason:")
+                              ?.trim()
+                          : undefined;
+                      if (
+                        selectedRecord.data?.instrumentKey === "polarimeter" &&
+                        !reason
+                      )
+                        return;
+                      decideMutation.mutate({
+                        id: selectedRecord.data!.id,
+                        decision: "rejected",
+                        expectedVersion: selectedRecord.data!.recordVersion,
+                        reason,
+                      });
+                    }}
+                  >
+                    <X size={16} /> {t.reject}
+                  </button>
+                  <button
+                    className="primary-button"
+                    disabled={approvalBlocked}
+                    title={approvalBlockMessage || undefined}
+                    onClick={() =>
+                      decideMutation.mutate({
+                        id: selectedRecord.data!.id,
+                        decision: "approved",
+                        expectedVersion: selectedRecord.data!.recordVersion,
+                      })
+                    }
+                  >
+                    <Check size={16} /> {t.approve}
+                  </button>
+                  {approvalBlocked && (
+                    <small className="approval-blocked-message">
+                      {approvalBlockMessage}
+                    </small>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+          {selectedRecord.data.instrumentKey === "polarimeter" && (
+            <PolarimeterWorkflowPanel
+              record={selectedRecord.data}
+              isAdmin={isAdmin}
+              currentUserId={currentUserId}
+              onStartRetest={onStartRetest}
+            />
+          )}
+          <div className="audit-trail">
+            {trailQuery.isLoading ? (
+              <Loader2 className="animate-spin" size={18} />
+            ) : trailQuery.data?.length ? (
+              trailQuery.data.map(event => (
+                <article className="audit-event" key={event.id}>
+                  <span className={`audit-dot ${event.action}`} />
+                  <div>
+                    <strong>{event.summary}</strong>
+                    <p>
+                      {event.actorName ? `${event.actorName} · ` : ""}
+                      {new Intl.DateTimeFormat(
+                        language === "ar" ? "ar-YE" : "en-GB",
+                        { dateStyle: "medium", timeStyle: "short" }
+                      ).format(new Date(event.createdAt))}
+                    </p>
+                  </div>
+                  <span>{event.action}</span>
+                </article>
+              ))
+            ) : (
+              <p className="muted-copy">{t.noEvents}</p>
+            )}
+          </div>
+        </section>
+      )}
+    </div>
+  );
 }

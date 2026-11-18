@@ -1,7 +1,6 @@
 import type { Express } from "express";
 import { ENV } from "./env";
-
-const OFFICIAL_REPORT_HEADER_KEY = "yemen-qc-official-report-header_14217543.png";
+import { OFFICIAL_REPORT_HEADER_KEY } from "../officialHeader";
 
 async function redirectToStorageObject(res: Parameters<Express["get"]>[1] extends (req: infer _Req, res: infer Res) => unknown ? Res : never, key: string) {
   if (!ENV.forgeApiUrl || !ENV.forgeApiKey) {
