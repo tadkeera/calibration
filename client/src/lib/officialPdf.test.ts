@@ -28,10 +28,10 @@ describe("official PDF header policy", () => {
     expect(readRepositorySource("server/_core/storageProxy.ts")).toContain(
       'import { OFFICIAL_REPORT_HEADER_KEY } from "../officialHeader"'
     );
-    expect(readRepositorySource("server/_core/index.ts")).toContain(
+    expect(readRepositorySource("server/_core/app.ts")).toContain(
       'import { OFFICIAL_REPORT_HEADER_KEY } from "../officialHeader"'
     );
-    expect(readRepositorySource("server/_core/index.ts")).toContain(
+    expect(readRepositorySource("server/_core/app.ts")).toContain(
       "url: `/manus-storage/${OFFICIAL_REPORT_HEADER_KEY}`"
     );
     expect(readRepositorySource("server/routers.ts")).toContain(
