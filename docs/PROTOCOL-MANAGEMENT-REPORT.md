@@ -78,11 +78,11 @@ See `docs/PROTOCOL-MANAGEMENT-ARCHITECTURE.md`. In short:
 | Suite | Result |
 |---|---|
 | `protocolCalc.test.ts` | 10/10 |
-| `protocolShared.test.ts` | 12/12 |
+| `protocolShared.test.ts` | 13/13 |
 | `protocolService.test.ts` (real SQLite store and triggers) | 13/13 |
 | `protocolPdf.test.ts` | 4/4 |
-| Full `pnpm test` | 112 passed, 5 failed. The 5 failures existed before this work: they need a reachable live Supabase project, which the sandbox cannot reach (`localAuth`, `supabase.connection`, `validationSettings`) |
-| `verify-protocols.ts` on embedded PostgreSQL | **ALL CHECKS PASSED** (22 checks) |
+| Full `pnpm test` | 116 passed, 9 skipped, 0 failed. The 9 skipped are the `[REAL Supabase]` suites (`supabase.integration`, `supabase.connection`, `localAuth`, `validationSettings`). They run only with real credentials via `pnpm test:integration`, which the sandbox cannot provide or reach |
+| `verify-protocols.ts` on embedded PostgreSQL | **ALL CHECKS PASSED** (52 checks, including the draft update → reopen round trip and execution snapshot preservation) |
 | `pnpm check` | 0 errors |
 | `pnpm build`, `pnpm build:vercel` | Success |
 
@@ -133,7 +133,7 @@ Abbreviations used in the evidence column:
 | 28 | Audit Trail integration | PASS | SVC audit with previous value and reason; `pdf.generated`. PG "audit trail populated". Module audit table (the existing `AdminActivityLog` is unchanged) |
 | 29 | RBAC enforced | PASS | SVC: viewers cannot author; duty grants need settings-admin; non-releaser cannot retire; segregation of duties |
 | 30 | Migrations safe | PASS | PG: run twice (idempotent), RLS on, anon has no grants, writes only through the RPC, atomic rollback |
-| 31 | Existing functionality operational | PASS | Same 112/117 suite result as before; the 5 failures need live Supabase. PG "existing validation records unchanged". Changes to existing files are additive only |
+| 31 | Existing functionality operational | PASS | Full suite 116 passed / 0 failed (9 real-Supabase tests skipped without credentials). PG "existing validation records unchanged". Changes to existing files are additive only |
 | 32 | ADP220 configured with the generic builder | PASS | SVC and PG: POL-QC-032D is DRAFT, idempotent, on the existing QC-I-029 / PE99003 record |
 | 33 | Unverified criteria flagged | PASS | CALC "never concludes compliance for pending criteria"; SVC approval blocked with `PENDING TECHNICAL VERIFICATION` |
 | 34 | Technical gaps documented | PASS | SH "mandatory accuracy gap…" (±0.02° vs ±0.01°); a decision is required before technical completion (SVC) |

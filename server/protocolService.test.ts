@@ -186,6 +186,23 @@ describe("protocol management service (SQLite store)", () => {
     // original approved content is unchanged
     const original = await svc.getRevision(admin, revisionId);
     expect(original.revision.content.sections[0].tests).toHaveLength(1);
+    // the draft revision is updated again, then retrieved and reopened intact
+    const reopened = await svc.getRevision(admin, r2.revisionId);
+    expect(reopened.revision.content.sections[0].tests.map(t => t.key)).toEqual(["acc", "rep"]);
+    content.narrative!.scope = "Polarimeters of model ADP220 (all registered units)";
+    const second = await svc.saveDraft(author, { revisionId: r2.revisionId, expectedRowVersion: reopened.revision.rowVersion, content, reason: "Clarify scope" });
+    const reopenedAgain = await svc.getRevision(admin, r2.revisionId);
+    expect(reopenedAgain.revision.rowVersion).toBe(second.rowVersion);
+    expect(reopenedAgain.revision.content.narrative.scope).toMatch(/all registered units/);
+    expect(reopenedAgain.revision.content.sections[0].tests[1].readingsRequired).toBe(5);
+    // earlier executions keep their original measurements and protocol snapshot (rev 1)
+    const [execSummary] = await svc.listExecutions({ protocolId });
+    const exec = await svc.getExecution(execSummary.id);
+    expect(exec.revisionNumber).toBe(1);
+    expect(exec.measurements).toEqual({ acc: { readings: [10.01, 10.0, 10.02], reference: 10 } });
+    expect(exec.protocolSnapshot.sections[0].tests.map(t => t.key)).toEqual(["acc"]);
+    expect(exec.protocolSnapshot.narrative.scope).toBe("Polarimeters of model ADP220");
+    expect(exec.contentHash).toBe(original.revision.contentHash);
   });
 
   it("flags affected protocols when a linked reference changes, without altering approved content", async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { REAL_SUPABASE_LABEL, runRealSupabase, runWithSecret } from "./testSupport/realSupabase";
 
-describe("Supabase service connection", () => {
+describe.skipIf(!runRealSupabase)(`${REAL_SUPABASE_LABEL} Supabase service connection`, () => {
   it("authenticates against the project settings endpoint", async () => {
     const url = process.env.SUPABASE_URL;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -18,7 +19,7 @@ describe("Supabase service connection", () => {
     expect(response.ok).toBe(true);
   });
 
-  it("authenticates with the management API for the configured project", async () => {
+  it.skipIf(!runWithSecret("SUPABASE_ACCESS_TOKEN"))("authenticates with the management API for the configured project", async () => {
     const accessToken = process.env.SUPABASE_ACCESS_TOKEN;
     const projectRef = new URL(process.env.SUPABASE_URL!).hostname.split(".")[0];
 
@@ -31,7 +32,7 @@ describe("Supabase service connection", () => {
     expect(response.ok).toBe(true);
   });
 
-  it("has the required initial administrator password before provisioning", async () => {
+  it.skipIf(!runWithSecret("INITIAL_ADMIN_PASSWORD"))("has the required initial administrator password before provisioning", async () => {
     const password = process.env.INITIAL_ADMIN_PASSWORD;
     const url = process.env.SUPABASE_URL;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

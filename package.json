@@ -18,6 +18,7 @@
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "NODE_OPTIONS=--experimental-sqlite vitest run",
+    "test:integration": "SUPABASE_INTEGRATION=required NODE_OPTIONS=--experimental-sqlite vitest run server/supabase.integration.test.ts server/supabase.connection.test.ts server/localAuth.test.ts server/validationSettings.test.ts",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "desktop:dev": "electron .",
     "build:desktop": "pnpm build && electron-builder --win portable --x64 --publish never",

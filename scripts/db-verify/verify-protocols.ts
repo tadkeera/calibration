@@ -10,6 +10,7 @@
  *
  *   cd scripts/db-verify && npm install && cd ../.. && npx tsx scripts/db-verify/verify-protocols.ts
  */
+import { isDeepStrictEqual } from "node:util";
 import EmbeddedPostgres from "embedded-postgres";
 import pg from "pg";
 import fs from "node:fs";
@@ -209,6 +210,21 @@ try {
   ok("reference change flags released protocol", change.affectedProtocols.includes("GEN-PG-1"));
   const snap = (await svc.getRevision(users.admin, created.revisionId)).revision.referenceSnapshot as { references: Array<{ edition: string }> };
   ok("approval-time reference snapshot preserved", snap.references[0].edition === "3.1");
+
+  // ---- Existing draft update → retrieve → reopen; executions keep measurements + snapshot ----
+  const r2 = await svc.createRevision(users.author, { protocolId: created.protocolId, reason: "Add repeatability", description: "Rev 2" });
+  const draft2 = await svc.getRevision(users.admin, r2.revisionId);
+  const content2 = structuredClone(draft2.revision.content);
+  content2.sections[0].tests.push({ ...structuredClone(content2.sections[0].tests[0]), key: "rep", name: "Repeatability", dataType: "series", readingsRequired: 5, calculations: [], criteria: [] });
+  const s1 = await svc.saveDraft(users.author, { revisionId: r2.revisionId, expectedRowVersion: draft2.revision.rowVersion, content: content2, reason: "Add repeatability" });
+  content2.narrative.scope = "ADP220 (all registered units)";
+  const s2 = await svc.saveDraft(users.author, { revisionId: r2.revisionId, expectedRowVersion: s1.rowVersion, content: content2, reason: "Clarify scope" });
+  await rejects("PG: stale draft update rejected", () => svc.saveDraft(users.author, { revisionId: r2.revisionId, expectedRowVersion: s1.rowVersion, content: content2, reason: "stale" }), /modified by another user/);
+  const reopened2 = await svc.getRevision(users.admin, r2.revisionId);
+  ok("PG: updated draft revision reopened intact", reopened2.revision.rowVersion === s2.rowVersion && reopened2.revision.content.sections[0].tests.length === 2 && reopened2.revision.content.narrative.scope === "ADP220 (all registered units)");
+  const storedExec = await svc.getExecution(exec.executionId);
+  ok("PG: execution keeps original measurements", isDeepStrictEqual(storedExec.measurements, { acc: { readings: [10.01, 10, 10.02], reference: 10 } }));
+  ok("PG: execution keeps rev-1 protocol snapshot + hash", storedExec.protocolSnapshot.sections[0].tests.length === 1 && storedExec.protocolSnapshot.narrative.scope === "ADP220" && storedExec.contentHash === released.revision.contentHash);
 
   const historyAfter = (await q(`select id, result_data::text, created_at from validation_records order by id`)).rows;
   ok("existing validation records unchanged", JSON.stringify(historyBefore) === JSON.stringify(historyAfter));

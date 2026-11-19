@@ -291,6 +291,72 @@ describe("[SQLite] Polarimeter save operations and retest references", () => {
       })
     ).rejects.toThrow();
   });
+
+  it("updates an existing draft record, then retrieves and reopens it with measurements and protocol snapshot preserved", async () => {
+    const analyst = await local.createInitialAdmin();
+    const settings = (await local.listValidationSettings()).find(
+      entry => entry.deviceKey === "polarimeter"
+    )!.settings;
+    const profile = (await local.listInstrumentProfiles()).find(
+      entry => entry.instrumentKey === "polarimeter"
+    )!;
+    const input = syntheticPolarimeterInput(settings, profile);
+    const identity = {
+      instrumentKey: "polarimeter",
+      instrumentName: profile.nameEn,
+      instrumentId: profile.instrumentId,
+      sopNumber: profile.sopNumber,
+      formNumber: profile.formNumber,
+      pharmacistName: "Synthetic Test Analyst",
+      userId: analyst.id,
+    };
+    const created = await local.createValidationRecord({
+      ...identity,
+      resultStatus: "pass",
+      resultData: buildPolarimeterDerivedResult(input, settings) as unknown as Record<string, unknown>,
+    });
+    expect(created.recordVersion).toBe(1);
+
+    // Update the existing draft with corrected readings (synthetic values).
+    const corrected = structuredClone(input);
+    corrected.repeatability.readings = ["1.00", "1.00", "1.01", "0.99", "1.00", "1.00"];
+    corrected.accuracy.analystNotes = "Synthetic correction of transcription; not laboratory data.";
+    const updated = await local.updateValidationRecord({
+      ...identity,
+      id: created.id,
+      expectedVersion: created.recordVersion,
+      resultStatus: "pass",
+      resultData: buildPolarimeterDerivedResult(corrected, settings) as unknown as Record<string, unknown>,
+    });
+    expect(updated.recordVersion).toBe(2);
+    expect(updated.lifecycleStatus).toBe("draft");
+
+    // A stale second update (old version) is refused and changes nothing.
+    await expect(
+      local.updateValidationRecord({
+        ...identity,
+        id: created.id,
+        expectedVersion: created.recordVersion,
+        resultStatus: "pass",
+        resultData: buildPolarimeterDerivedResult(input, settings) as unknown as Record<string, unknown>,
+      })
+    ).rejects.toThrow(/version conflict/i);
+
+    // Retrieve via the list and reopen by id: the corrected measurements and
+    // the original protocol snapshot are preserved exactly.
+    const listed = (await local.listValidationRecords({ userId: analyst.id, canViewAll: true })).find(r => r.id === created.id);
+    expect(listed?.recordVersion).toBe(2);
+    const reopened = await local.getValidationRecordById(created.id);
+    const saved = reopened!.resultData.polarimeterData as PolarimeterV2;
+    expect(saved.repeatability.readings).toEqual(corrected.repeatability.readings);
+    expect(saved.accuracy.analystNotes).toBe(corrected.accuracy.analystNotes);
+    expect(saved.linearity.points.map(p => p.measuredOpticalRotation)).toEqual(
+      input.linearity.points.map(p => p.measuredOpticalRotation)
+    );
+    expect(saved.protocolSnapshot).toEqual(input.protocolSnapshot);
+    expect(saved.equipmentSnapshot.serialNumber).toBe(profile.serialNumber);
+    expect(reopened!.retestOfRecordId).toBeNull();
+  });
 });
 
 describe("[Supabase-mocked] validation_records payload and schema-cache errors", () => {
