@@ -6,7 +6,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe("Supabase draft-insert error classification (mocked PostgREST)", () => {
+describe("[Supabase-mocked] Supabase draft-insert error classification (mocked PostgREST)", () => {
   it("reports only duplicate-key responses as conflicts and preserves service failures", async () => {
     vi.stubEnv("SUPABASE_URL", "https://draft-error-test.supabase.co");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-only-service-role");

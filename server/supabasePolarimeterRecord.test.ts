@@ -119,7 +119,7 @@ function profileRow(device: (typeof devices)[number]) {
   };
 }
 
-describe("Supabase Polarimeter record persistence", () => {
+describe("[Supabase-mocked] Supabase Polarimeter record persistence (fetch stubbed)", () => {
   it("recomputes, matches the existing register, and persists normalized draft data", async () => {
     vi.stubEnv("SUPABASE_URL", "https://synthetic-project.supabase.co");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-only-service-role");

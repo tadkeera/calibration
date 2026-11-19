@@ -63,7 +63,7 @@ function activeAdminRow(id: number) {
   };
 }
 
-describe("Supabase Polarimeter workflow persistence (mocked PostgREST)", () => {
+describe("[Supabase-mocked] Supabase Polarimeter workflow persistence (mocked PostgREST)", () => {
   it("uses version compare-and-swap for account-scoped server drafts and refuses stale writes", async () => {
     config();
     const payload = {

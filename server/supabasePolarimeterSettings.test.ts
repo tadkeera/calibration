@@ -7,7 +7,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe("Supabase Polarimeter protocol version persistence", () => {
+describe("[Supabase-mocked] Supabase Polarimeter protocol version persistence (fetch stubbed)", () => {
   it("versions settings, writes a pending state, and retains the prior JSON snapshot", async () => {
     vi.stubEnv("SUPABASE_URL", "https://synthetic-project.supabase.co");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-only-service-role");

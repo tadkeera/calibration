@@ -1941,3 +1941,7 @@ export async function checkSchemaHealth(): Promise<SchemaHealth> {
     checkedAt: new Date().toISOString(),
   };
 }
+
+/** PostgREST access for additive modules (Protocol Management store). */
+export const supabaseRestRequest = supabaseRequest;
+export const supabaseRestPath = restPath;

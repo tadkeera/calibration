@@ -7,6 +7,7 @@ import { OFFICIAL_REPORT_HEADER_KEY } from "../officialHeader";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { checkSchemaHealth } from "../db";
+import { moduleStatus } from "../protocols/service";
 
 /**
  * Builds the Express application with every API route (tRPC, OAuth, storage).
@@ -46,7 +47,17 @@ export function createApp(): Express {
     res.set("Cache-Control", "no-store");
     try {
       const health = await checkSchemaHealth();
-      res.status(health.ok ? 200 : 503).json(health);
+      // Protocol Management is reported separately so the core validation
+      // workflow status is not masked; apply protocol_management_migration.sql
+      // when protocolManagement.ok is false.
+      let protocolManagement: { ok: boolean; missing: string[]; migration?: string } | { ok: false; error: string };
+      try {
+        const status = await moduleStatus();
+        protocolManagement = status.ok ? status : { ...status, migration: "server/sql/protocol_management_migration.sql" };
+      } catch {
+        protocolManagement = { ok: false, error: "Protocol Management schema could not be checked" };
+      }
+      res.status(health.ok ? 200 : 503).json({ ...health, protocolManagement });
     } catch (error) {
       console.error("[SchemaHealth] check failed", error);
       res.status(500).json({

@@ -14,6 +14,7 @@ import pg from "pg";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 const repo = new URL("../../server/sql/", import.meta.url).pathname;
 const schemaSql = fs.readFileSync(repo + "supabase_schema.sql", "utf8");
 const migrationSql = fs.readFileSync(repo + "polarimeter_workflow_migration.sql", "utf8");
@@ -71,6 +72,23 @@ try {
   // Update draft (record_version bump path used by app)
   const upd = await q(`update validation_records set result_data='{"polarimeterData":{"schemaVersion":"2","v":2}}', record_version=record_version+1 where id=$1 and record_version=1 returning record_version`, [normal.rows[0].id]);
   ok("existing non-failed draft can be updated (version 2)", upd.rows[0]?.record_version === 2);
+  // Existing draft update → retrieve → reopen: measurements and protocol snapshot preserved (jsonb round-trip)
+  const snapshot = { protocolVersion: 3, protocolStatus: "pending-verification", conditions: { wavelengthNm: 589, tubeLengthDm: 2 } };
+  const v1 = { step: 2, inputs: { accuracy: { opticalRotation: "1.33" } }, protocolSnapshot: snapshot };
+  const v2 = { step: 5, inputs: { accuracy: { opticalRotation: "1.33" }, repeatability: { readings: ["1.00", "1.01", "", "0.99"] } }, protocolSnapshot: snapshot };
+  const d1 = await q(`insert into polarimeter_drafts (user_id, draft_key, protocol_version, payload) values (2, 'active', '3', $1::jsonb) returning id, version`, [JSON.stringify(v1)]);
+  ok("polarimeter draft created (version 1)", d1.rows[0].version === 1);
+  const d2 = await q(`update polarimeter_drafts set payload=$1::jsonb, version=version+1, updated_at=now() where user_id=2 and draft_key='active' and version=1 returning version`, [JSON.stringify(v2)]);
+  ok("existing polarimeter draft updated with version guard (version 2)", d2.rows[0]?.version === 2);
+  const stale = await q(`update polarimeter_drafts set payload='{}'::jsonb, version=version+1 where user_id=2 and draft_key='active' and version=1`);
+  ok("stale draft update (old version) changes nothing", stale.rowCount === 0);
+  await expectErr("second draft for the same user/key", `insert into polarimeter_drafts (user_id, draft_key, protocol_version, payload) values (2, 'active', '3', '{}'::jsonb)`, [], /duplicate key|unique/);
+  const reopenedDraft = (await q(`select payload, version from polarimeter_drafts where user_id=2 and draft_key='active'`)).rows[0];
+  ok("reopened draft: measurements (incl. empty reading) and protocol snapshot preserved exactly", isDeepStrictEqual(reopenedDraft.payload, v2) && reopenedDraft.version === 2);
+  const recData = { polarimeterData: { schemaVersion: 2, repeatability: { readings: ["1.00", "1.01"] }, protocolSnapshot: snapshot } };
+  await q(`update validation_records set result_data=$2::jsonb, record_version=record_version+1 where id=$1 and record_version=2`, [normal.rows[0].id, JSON.stringify(recData)]);
+  const reopenedRec = (await q(`select result_data, record_version, retest_of_record_id from validation_records where id=$1`, [normal.rows[0].id])).rows[0];
+  ok("updated draft record reopened with measurements + protocol snapshot preserved (version 3, retest NULL)", isDeepStrictEqual(reopenedRec.result_data, recData) && reopenedRec.record_version === 3 && reopenedRec.retest_of_record_id === null);
   // Retest linked to failed polarimeter record (id 2)
   const retest = await q(`insert into validation_records (instrument_key,instrument_name,instrument_id,sop_number,form_number,result_status,result_data,pharmacist_name,validated_by_user_id,retest_of_record_id,retest_reason)
            values ('polarimeter','Polarimeter','QC-I-POL','QC-032D','F','pass','{}','A',2,2,'Lamp replaced after failed accuracy') returning retest_of_record_id`);

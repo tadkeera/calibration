@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ClipboardCheck,
   Download,
+  FileStack,
   FileText,
   FlaskConical,
   History,
@@ -28,6 +29,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { CalibrationForm } from "@/components/CalibrationForm";
+import { ProtocolManagement } from "@/components/protocols/ProtocolManagement";
 import { InstrumentEditor } from "@/components/InstrumentEditor";
 import { QCChart } from "@/components/QCChart";
 import { RecordHistory } from "@/components/RecordHistory";
@@ -58,7 +60,8 @@ type Page =
   | "history"
   | "account"
   | "users"
-  | "activity";
+  | "activity"
+  | "protocols";
 type Language = "ar" | "en";
 type RetestContext = { originalRecordId: number; reason: string };
 const storageKey = "yemen-qc-settings-v1";
@@ -1677,6 +1680,12 @@ export default function Home() {
       { id: "settings", icon: Settings2, label: copy.nav[2] },
       { id: "history", icon: History, label: copy.nav[3] },
       {
+        id: "protocols",
+        icon: FileStack,
+        label:
+          interfaceLanguage === "ar" ? "إدارة البروتوكولات" : "Protocol Management",
+      },
+      {
         id: "account",
         icon: KeyRound,
         label: interfaceLanguage === "ar" ? "أمان الحساب" : "Account security",
@@ -1701,7 +1710,11 @@ export default function Home() {
         : []),
     ];
   const pageLabel =
-    activePage === "users"
+    activePage === "protocols"
+      ? interfaceLanguage === "ar"
+        ? "إدارة البروتوكولات"
+        : "Protocol Management"
+      : activePage === "users"
       ? interfaceLanguage === "ar"
         ? "المستخدمون"
         : "Users"
@@ -1906,6 +1919,11 @@ export default function Home() {
                 setResult(null);
                 navigate("calibration");
               }}
+            />
+          )}
+          {activePage === "protocols" && user && (
+            <ProtocolManagement
+              user={{ id: user.id, name: user.name ?? null, role: user.role }}
             />
           )}
           {activePage === "account" && (
