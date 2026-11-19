@@ -6,6 +6,11 @@ import {
 } from "./validationUtils";
 
 import { defaultSettings, devices } from "../client/src/lib/qc";
+import {
+  REQUIRED_SCHEMA,
+  type SchemaCheck,
+  type SchemaHealth,
+} from "./schemaRequirements";
 import { versionPolarimeterSettings } from "../shared/polarimeter";
 import {
   assertCanAcceptTechnicalReview,
@@ -55,9 +60,27 @@ const getConfig = () => {
   return { url, key };
 };
 
-class SupabaseRequestError extends Error {
+/**
+ * PostgREST / PostgreSQL codes that mean the deployed database schema (or the
+ * PostgREST schema cache) is behind the application:
+ *   PGRST204 column not found in schema cache · PGRST205 table not found in schema cache
+ *   PGRST202 function not found in schema cache · 42703 undefined column · 42P01 undefined table
+ */
+export const SCHEMA_MISMATCH_CODES = new Set([
+  "PGRST202",
+  "PGRST204",
+  "PGRST205",
+  "42703",
+  "42P01",
+]);
+
+export const SCHEMA_MISMATCH_GUIDANCE =
+  "The deployed Supabase schema is older than the application. Apply server/sql/polarimeter_workflow_migration.sql in the Supabase SQL Editor (it ends by reloading the PostgREST schema cache), then retry. No data was saved by this request.";
+
+export class SupabaseRequestError extends Error {
   readonly status: number;
   readonly code: string | null;
+  readonly schemaMismatch: boolean;
 
   constructor(status: number, body: string) {
     let parsed: { code?: unknown; message?: unknown } | null = null;
@@ -68,10 +91,17 @@ class SupabaseRequestError extends Error {
     }
     const detail =
       typeof parsed?.message === "string" ? parsed.message : body.slice(0, 240);
-    super(`Supabase request failed (${status}): ${detail}`);
+    const code = typeof parsed?.code === "string" ? parsed.code : null;
+    const schemaMismatch = code !== null && SCHEMA_MISMATCH_CODES.has(code);
+    // The original database message is always preserved; schema mismatches get
+    // an actionable instruction appended instead of being hidden or bypassed.
+    super(
+      `Supabase request failed (${status}): ${detail}${schemaMismatch ? ` — ${SCHEMA_MISMATCH_GUIDANCE}` : ""}`
+    );
     this.name = "SupabaseRequestError";
     this.status = status;
-    this.code = typeof parsed?.code === "string" ? parsed.code : null;
+    this.code = code;
+    this.schemaMismatch = schemaMismatch;
   }
 }
 
@@ -1836,5 +1866,78 @@ export async function upsertValidationSettings(input: {
     settings: rows[0].settings,
     updatedByUserId: rows[0].updated_by_user_id,
     updatedAt: new Date(rows[0].updated_at),
+  };
+}
+
+/**
+ * Read-only schema probe against the deployed Supabase project. Each table is
+ * queried with `select=<required columns>&limit=0`, which PostgREST validates
+ * against its schema cache — the same validation that rejected the insert with
+ * PGRST204. No rows are read or written.
+ */
+export async function checkSchemaHealth(): Promise<SchemaHealth> {
+  const { url } = getConfig();
+  let projectRefHint: string | undefined;
+  try {
+    projectRefHint = new URL(url).hostname.split(".")[0].slice(0, 6);
+  } catch {
+    projectRefHint = undefined;
+  }
+  const checks: SchemaCheck[] = [];
+  for (const requirement of REQUIRED_SCHEMA) {
+    try {
+      await supabaseRequest(
+        restPath(
+          requirement.table,
+          `select=${requirement.columns.join(",")}&limit=0`
+        )
+      );
+      checks.push({ table: requirement.table, ok: true });
+    } catch (error) {
+      if (!(error instanceof SupabaseRequestError) || !error.schemaMismatch)
+        throw error;
+      // Narrow down which columns are unknown so the report is actionable.
+      const missing: string[] = [];
+      for (const column of requirement.columns) {
+        try {
+          await supabaseRequest(
+            restPath(requirement.table, `select=${column}&limit=0`)
+          );
+        } catch (columnError) {
+          if (
+            columnError instanceof SupabaseRequestError &&
+            columnError.schemaMismatch
+          )
+            missing.push(column);
+          else throw columnError;
+        }
+      }
+      checks.push({
+        table: requirement.table,
+        ok: false,
+        missing: missing.length ? missing : requirement.columns.slice(),
+      });
+    }
+  }
+  let polarimeterSettingsProvisioned = false;
+  try {
+    const rows = await supabaseRequest<Array<{ device_key: string }>>(
+      restPath(
+        "validation_settings",
+        "device_key=eq.polarimeter&select=device_key&limit=1"
+      )
+    );
+    polarimeterSettingsProvisioned = rows.length === 1;
+  } catch (error) {
+    if (!(error instanceof SupabaseRequestError) || !error.schemaMismatch)
+      throw error;
+  }
+  return {
+    ok: checks.every(check => check.ok) && polarimeterSettingsProvisioned,
+    storage: "supabase",
+    projectRefHint,
+    checks,
+    polarimeterSettingsProvisioned,
+    checkedAt: new Date().toISOString(),
   };
 }

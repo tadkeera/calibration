@@ -6,6 +6,7 @@ import { registerStorageProxy } from "./storageProxy";
 import { OFFICIAL_REPORT_HEADER_KEY } from "../officialHeader";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
+import { checkSchemaHealth } from "../db";
 
 /**
  * Builds the Express application with every API route (tRPC, OAuth, storage).
@@ -39,6 +40,22 @@ export function createApp(): Express {
     registerStorageProxy(app);
   }
   registerOAuthRoutes(app);
+  // Read-only, unauthenticated schema health probe. Returns only booleans and
+  // missing column names — never rows, keys or connection details.
+  app.get("/api/health/schema", async (_req, res) => {
+    res.set("Cache-Control", "no-store");
+    try {
+      const health = await checkSchemaHealth();
+      res.status(health.ok ? 200 : 503).json(health);
+    } catch (error) {
+      console.error("[SchemaHealth] check failed", error);
+      res.status(500).json({
+        ok: false,
+        error: "Schema health check could not reach the configured database",
+        checkedAt: new Date().toISOString(),
+      });
+    }
+  });
   // tRPC API
   app.use(
     "/api/trpc",
