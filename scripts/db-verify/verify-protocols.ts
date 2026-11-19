@@ -14,6 +14,8 @@ import { isDeepStrictEqual } from "node:util";
 import EmbeddedPostgres from "embedded-postgres";
 import pg from "pg";
 import fs from "node:fs";
+import { execSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,6 +36,11 @@ pg.types.setTypeParser(1184, v => new Date(v).toISOString());
 pg.types.setTypeParser(1082, v => v);
 
 const port = 54330;
+/** Supabase Auth is not available here: the e-signature verifier is replaced (password "sign"); the real check is covered by the SQLite tests. */
+const SIGN = "sign";
+svc.setSignatureVerifierForTests(async (_actor, password) => password === SIGN);
+/** The module migration as merged before the v2 extension (PR #4) — used to prove the in-place upgrade. */
+const V1_COMMIT = "2b56f65";
 const server = new EmbeddedPostgres({ databaseDir: fs.mkdtempSync(path.join(os.tmpdir(), "qc-pg-protocols-")), user: "postgres", password: "pw", port, persistent: false });
 let failures = 0;
 const ok = (name: string, cond: boolean, extra = "") => {
@@ -115,13 +122,17 @@ try {
            values ('polarimeter','Polarimeter','QC-I-029','QC-032D','QC-032B-01','pass','{"legacy":true}','A',$1)`, [users.admin.id]);
   const historyBefore = (await q(`select id, result_data::text, created_at from validation_records order by id`)).rows;
 
+  const v1 = execSync(`git show ${V1_COMMIT}:server/sql/protocol_management_migration.sql`, { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+  await q(v1);
+  const v1Tables = await q(`select count(*)::int n from information_schema.tables where table_schema='public' and table_name like 'protocol%'`);
+  ok("v1 module migration (already-deployed state) applied", v1Tables.rows[0].n === 11, String(v1Tables.rows[0].n));
   const migration = read("protocol_management_migration.sql");
   await q(migration);
-  ok("migration run #1 succeeded", true);
+  ok("migration run #1 succeeded (in-place upgrade from v1)", true);
   await q(migration);
   ok("migration run #2 succeeded (idempotent)", true);
   const tables = await q(`select count(*)::int n from information_schema.tables where table_schema='public' and table_name like 'protocol%'`);
-  ok("11 protocol tables exist", tables.rows[0].n === 11, String(tables.rows[0].n));
+  ok("13 protocol tables exist", tables.rows[0].n === 13, String(tables.rows[0].n));
   for (const [table, cols] of Object.entries(PROTOCOL_TABLES)) {
     const res = await q(`select column_name from information_schema.columns where table_schema='public' and table_name=$1`, [table]);
     const have = new Set(res.rows.map(r => r.column_name));
@@ -129,7 +140,7 @@ try {
     ok(`${table}: every whitelisted column exists`, missing.length === 0, missing.join(","));
   }
   const rls = await q(`select count(*)::int n from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname like 'protocol%' and c.relkind='r' and c.relrowsecurity`);
-  ok("RLS enabled on all protocol tables", rls.rows[0].n === 11);
+  ok("RLS enabled on all protocol tables", rls.rows[0].n === 13);
   const anonPriv = await q(`select count(*)::int n from information_schema.role_table_grants where grantee in ('anon','authenticated') and table_name like 'protocol%'`);
   ok("anon/authenticated have no table privileges", anonPriv.rows[0].n === 0);
   const svcWrite = await q(`select count(*)::int n from information_schema.role_table_grants where grantee='service_role' and table_name like 'protocol%' and privilege_type in ('INSERT','UPDATE','DELETE')`);
@@ -157,22 +168,21 @@ try {
   const rv = async () => (await svc.getRevision(users.admin, created.revisionId)).revision.rowVersion;
   await rejects("stale row version rejected", () => svc.saveDraft(users.author, { revisionId: created.revisionId, expectedRowVersion: 99, content, reason: "x" }), /modified by another user/);
   const stale = await rv();
-  await svc.transition(users.author, { revisionId: created.revisionId, expectedRowVersion: stale, action: "submit-technical-review" });
-  await rejects("duplicate submission rejected", () => svc.transition(users.author, { revisionId: created.revisionId, expectedRowVersion: stale, action: "submit-technical-review" }), /changed since it was loaded/);
-  await rejects("author cannot self-review", () => svc.transition(users.author, { revisionId: created.revisionId, expectedRowVersion: 2, action: "start-technical-review" }), /Segregation|changed/);
-  await svc.transition(users.tech, { revisionId: created.revisionId, expectedRowVersion: await rv(), action: "start-technical-review" });
-  await svc.transition(users.tech, { revisionId: created.revisionId, expectedRowVersion: await rv(), action: "complete-technical-review", attestation: true, comment: "Technical review complete" });
-  await svc.transition(users.author, { revisionId: created.revisionId, expectedRowVersion: await rv(), action: "submit-qa-review" });
-  await svc.transition(users.qa, { revisionId: created.revisionId, expectedRowVersion: await rv(), action: "start-qa-review" });
-  await svc.transition(users.qa, { revisionId: created.revisionId, expectedRowVersion: await rv(), action: "qa-approve", attestation: true, comment: "Approved" });
-  await svc.transition(users.qa, { revisionId: created.revisionId, expectedRowVersion: await rv(), action: "release", effectiveDate: new Date().toISOString().slice(0, 10) });
+  await svc.transition(users.author, { password: SIGN, revisionId: created.revisionId, expectedRowVersion: stale, action: "submit-technical-review" });
+  await rejects("duplicate submission rejected", () => svc.transition(users.author, { password: SIGN, revisionId: created.revisionId, expectedRowVersion: stale, action: "submit-technical-review" }), /changed since it was loaded/);
+  await rejects("author cannot self-review", () => svc.transition(users.author, { password: SIGN, revisionId: created.revisionId, expectedRowVersion: 2, action: "start-technical-review" }), /Segregation|changed/);
+  await svc.transition(users.tech, { password: SIGN, revisionId: created.revisionId, expectedRowVersion: await rv(), action: "start-technical-review" });
+  await svc.transition(users.tech, { password: SIGN, revisionId: created.revisionId, expectedRowVersion: await rv(), action: "complete-technical-review", attestation: true, comment: "Technical review complete" });
+  await svc.transition(users.author, { password: SIGN, revisionId: created.revisionId, expectedRowVersion: await rv(), action: "submit-qa-review" });
+  await svc.transition(users.qa, { password: SIGN, revisionId: created.revisionId, expectedRowVersion: await rv(), action: "start-qa-review" });
+  await svc.transition(users.qa, { password: SIGN, revisionId: created.revisionId, expectedRowVersion: await rv(), action: "qa-approve", attestation: true, comment: "Approved" });
+  await svc.transition(users.qa, { password: SIGN, revisionId: created.revisionId, expectedRowVersion: await rv(), action: "release", effectiveDate: new Date().toISOString().slice(0, 10) });
   const released = await svc.getRevision(users.admin, created.revisionId);
   ok("full workflow reaches RELEASED on PostgreSQL", released.revision.status === "released" && released.revision.locked === true);
   ok("next review date computed", !!released.revision.nextReviewDate);
   const exec = await svc.executeProtocol(users.author, { revisionId: created.revisionId, instrumentKey: "polarimeter", measurements: { acc: { readings: [10.01, 10, 10.02], reference: 10 } } });
   ok("execution of released revision recorded", exec.evaluation.overall === "PASS");
 
-  // ---- Database guards (independent of the application) ----
   const asService = async (sql: string, params: unknown[] = []) => {
     await q("SET ROLE service_role");
     try {
@@ -182,6 +192,40 @@ try {
     }
   };
   const rpc = (changes: unknown[]) => asService("SELECT public.protocol_apply_changes($1::jsonb)", [JSON.stringify(changes)]);
+
+  // ---- v2: e-signature, execution review, deviations, attachments, schedule ----
+  const gen2 = await svc.createProtocol(users.author, { content: { ...content, identification: { ...content.identification, number: "SIG-PG-1" } }, reason: "Signature" });
+  await rejects("PG: signature without password rejected", () => svc.transition(users.author, { revisionId: gen2.revisionId, expectedRowVersion: 1, action: "submit-technical-review" }), /re-enter your password/);
+  await rejects("PG: wrong signature password rejected", () => svc.transition(users.author, { revisionId: gen2.revisionId, expectedRowVersion: 1, action: "submit-technical-review", password: "wrong" }), /Nothing was signed/);
+  ok("PG: failed signature audited", (await q(`select count(*)::int n from protocol_audit_events where action='signature.failed' and entity_id=$1`, [gen2.revisionId])).rows[0].n === 1);
+  ok("PG: approval rows record re-authentication", (await q(`select bool_and(reauthenticated) v from protocol_approvals where revision_id=$1 and signature_meaning is not null`, [created.revisionId])).rows[0].v === true);
+  const exec2 = await svc.executeProtocol(users.author, { revisionId: created.revisionId, instrumentKey: "polarimeter", measurements: { acc: { readings: [10.01, 10, 10.02], reference: 10 } }, activityKey: "pr", deviations: [{ description: "Lamp warm-up shortened to 10 min", impact: "None expected", immediateAction: "Repeated reading", reference: "DEV-PG-1" }] });
+  const e2 = await svc.getExecution(users.tech, exec2.executionId);
+  ok("PG: deviations + activity stored as JSON", e2.deviations[0]?.reference === "DEV-PG-1" && e2.activityName === "Periodic Review");
+  await rejects("PG: executor cannot review own execution", () => svc.reviewExecution(users.author, { executionId: exec2.executionId, action: "review", comment: "self", password: SIGN }), /Segregation|requires/);
+  await rejects("PG: QA cannot approve before technical review", () => svc.reviewExecution(users.qa, { executionId: exec2.executionId, action: "approve", comment: "skip", password: SIGN }), /technical review|recorded/i);
+  await svc.reviewExecution(users.tech, { executionId: exec2.executionId, action: "review", comment: "Raw data checked", password: SIGN });
+  await svc.reviewExecution(users.qa, { executionId: exec2.executionId, action: "approve", comment: "QA approved", password: SIGN });
+  ok("PG: execution technically reviewed and QA approved", (await svc.getExecution(users.admin, exec2.executionId)).reviewStatus === "approved");
+  const reviewRow = (changes: Record<string, unknown>) => ({ op: "insert", table: "protocol_execution_reviews", row: { id: `x-${Math.random()}`, execution_id: exec2.executionId, protocol_id: created.protocolId, signature_meaning: "x", reauthenticated: true, comment: "direct", actor_user_id: users.admin.id, actor_name: "a", actor_role: "admin", created_at: new Date().toISOString(), ...changes } });
+  await rejects("DB: decision after final QA decision blocked", () => rpc([reviewRow({ action: "reject", from_status: "reviewed", to_status: "rejected" })]), /final decision|duplicate key|unique/i);
+  await rejects("DB: execution reviews append-only", () => q(`update protocol_execution_reviews set comment='x'`), /append-only|not permitted/i);
+  const exec3 = await svc.executeProtocol(users.author, { revisionId: created.revisionId, instrumentKey: "polarimeter", measurements: { acc: { readings: [10.01, 10, 10.02], reference: 10 } } });
+  await rejects("DB: executor self-review blocked by trigger", () => rpc([{ ...reviewRow({ action: "review", from_status: "recorded", to_status: "reviewed", actor_user_id: users.author.id }), row: { ...reviewRow({ action: "review", from_status: "recorded", to_status: "reviewed", actor_user_id: users.author.id }).row, execution_id: exec3.executionId } }]), /segregation of duties/i);
+  await rejects("DB: QA decision without technical review blocked by trigger", () => rpc([{ ...reviewRow({}), row: { ...reviewRow({ action: "approve", from_status: "reviewed", to_status: "approved" }).row, execution_id: exec3.executionId } }]), /technical review/i);
+  const fileBytes = Buffer.from("timestamp,reading\n2026-11-18T08:00Z,10.01\n");
+  const att = await svc.uploadAttachment(users.author, { entityType: "execution", entityId: exec3.executionId, fileName: "raw.csv", mimeType: "text/csv", contentBase64: fileBytes.toString("base64"), description: "Instrument export" });
+  ok("PG: attachment stored with server-side SHA-256", att.sha256 === createHash("sha256").update(fileBytes).digest("hex"));
+  const dl = await svc.downloadAttachment(att.id);
+  ok("PG: attachment round-trip + integrity", dl.integrityOk && Buffer.from(dl.contentBase64, "base64").equals(fileBytes));
+  await rejects("DB: attachments append-only", () => q(`delete from protocol_attachments`), /append-only|not permitted/i);
+  await rejects("DB: attachment sha256 format enforced", () => rpc([{ op: "insert", table: "protocol_attachments", row: { id: "bad-sha", entity_type: "execution", entity_id: exec3.executionId, protocol_id: created.protocolId, file_name: "a.txt", mime_type: "text/plain", size_bytes: 1, sha256: "nope", content_base64: "QQ==", description: "", uploaded_by_user_id: users.admin.id, uploaded_by_name: "a", created_at: new Date().toISOString() } }]), /check constraint|violates/i);
+  const schedule = await svc.activitySchedule();
+  ok("PG: activity schedule computed (Periodic Review excluded)", Array.isArray(schedule) && schedule.every(i => i.activity !== "Periodic Review"));
+  const dash = await svc.dashboard();
+  ok("PG: dashboard reports execution review queues", typeof dash.stats.executionsAwaitingReview === "number" && dash.stats.executionsAwaitingReview >= 1);
+
+  // ---- Database guards (independent of the application) ----
   await rejects("DB: locked revision content cannot change (RPC)", () => rpc([{ op: "update", table: "protocol_revisions", id: created.revisionId, set: { content: { tampered: true } }, expect: {} }]), /editable|immutable|locked/i);
   await rejects("DB: invalid status transition released→draft", () => q(`update protocol_revisions set status='draft' where id=$1`, [created.revisionId]), /transition|not allowed|immutable/i);
   await rejects("DB: audit events append-only (UPDATE)", () => q(`update protocol_audit_events set reason='x'`), /append-only|not permitted/i);
@@ -222,7 +266,7 @@ try {
   await rejects("PG: stale draft update rejected", () => svc.saveDraft(users.author, { revisionId: r2.revisionId, expectedRowVersion: s1.rowVersion, content: content2, reason: "stale" }), /modified by another user/);
   const reopened2 = await svc.getRevision(users.admin, r2.revisionId);
   ok("PG: updated draft revision reopened intact", reopened2.revision.rowVersion === s2.rowVersion && reopened2.revision.content.sections[0].tests.length === 2 && reopened2.revision.content.narrative.scope === "ADP220 (all registered units)");
-  const storedExec = await svc.getExecution(exec.executionId);
+  const storedExec = await svc.getExecution(users.admin, exec.executionId);
   ok("PG: execution keeps original measurements", isDeepStrictEqual(storedExec.measurements, { acc: { readings: [10.01, 10, 10.02], reference: 10 } }));
   ok("PG: execution keeps rev-1 protocol snapshot + hash", storedExec.protocolSnapshot.sections[0].tests.length === 1 && storedExec.protocolSnapshot.narrative.scope === "ADP220" && storedExec.contentHash === released.revision.contentHash);
 
@@ -235,6 +279,7 @@ try {
   failures++;
 } finally {
   svc.setProtocolStoreForTests(null);
+  svc.setSignatureVerifierForTests(null);
   await client.end();
   await server.stop();
 }

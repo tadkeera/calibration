@@ -1,5 +1,5 @@
 /** Design reminder: the protected register keeps the existing "دفتر المختبر الأخضر" character while adding evidence, accountability, and bilingual controls. */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -17,6 +17,7 @@ import {
   KeyRound,
   Languages,
   LayoutDashboard,
+  Loader2,
   LogIn,
   LogOut,
   Menu,
@@ -29,7 +30,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { CalibrationForm } from "@/components/CalibrationForm";
-import { ProtocolManagement } from "@/components/protocols/ProtocolManagement";
 import { InstrumentEditor } from "@/components/InstrumentEditor";
 import { QCChart } from "@/components/QCChart";
 import { RecordHistory } from "@/components/RecordHistory";
@@ -38,6 +38,13 @@ import { UserManagement } from "@/components/UserManagement";
 import { AccountSecurity } from "@/components/AccountSecurity";
 import { AdminActivityLog } from "@/components/AdminActivityLog";
 import { startLogin } from "@/const";
+
+// Protocol Management is a large, self-contained module: load it only when opened.
+const ProtocolManagement = lazy(() =>
+  import("@/components/protocols/ProtocolManagement").then(m => ({
+    default: m.ProtocolManagement,
+  }))
+);
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { downloadOfficialPdf } from "@/lib/officialPdf";
@@ -1922,9 +1929,17 @@ export default function Home() {
             />
           )}
           {activePage === "protocols" && user && (
-            <ProtocolManagement
-              user={{ id: user.id, name: user.name ?? null, role: user.role }}
-            />
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading Protocol Management…
+                </div>
+              }
+            >
+              <ProtocolManagement
+                user={{ id: user.id, name: user.name ?? null, role: user.role }}
+              />
+            </Suspense>
           )}
           {activePage === "account" && (
             <AccountSecurity language={interfaceLanguage} email={user?.email} />

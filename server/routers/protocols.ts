@@ -9,11 +9,15 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { measurementsSchema } from "../../shared/protocols/evaluate";
 import { PROTOCOL_TYPE_IDS, REFERENCE_TYPE_IDS, REFERENCE_VERIFICATION_STATUSES, GAP_DECISION_IDS } from "../../shared/protocols/model";
 import { PROTOCOL_DUTY_IDS, WORKFLOW_ACTIONS } from "../../shared/protocols/workflow";
+import { EXECUTION_REVIEW_ACTIONS, EXECUTION_REVIEW_STATUSES } from "../../shared/protocols/executionReview";
+import { ATTACHMENT_ENTITY_TYPES, MAX_ATTACHMENT_BYTES } from "../../shared/protocols/attachments";
 import * as service from "../protocols/service";
 import { ProtocolConflictError } from "../protocols/tables";
 
-type Ctx = { user: { id: number; name: string | null; role: "admin" | "user" | "viewer" } };
-const actorOf = (ctx: Ctx): service.Actor => ({ id: ctx.user.id, name: ctx.user.name, role: ctx.user.role });
+type Ctx = { user: { id: number; name: string | null; role: "admin" | "user" | "viewer"; email?: string | null } };
+const actorOf = (ctx: Ctx): service.Actor => ({ id: ctx.user.id, name: ctx.user.name, role: ctx.user.role, email: ctx.user.email ?? null });
+/** Electronic-signature password (re-authentication). Never logged or stored. */
+const signaturePassword = z.string().min(1).max(256).optional();
 
 async function run<T>(fn: () => Promise<T>): Promise<T> {
   try {
@@ -86,7 +90,7 @@ export const protocolsRouter = router({
     .input(z.object({ protocolId: z.string().min(1).max(64), reason: z.string().min(3).max(1000), description: z.string().max(2000) }))
     .mutation(({ ctx, input }) => run(() => service.createRevision(actorOf(ctx), input))),
   transition: protectedProcedure
-    .input(z.object({ revisionId, expectedRowVersion: z.number().int().positive(), action: z.enum(WORKFLOW_ACTIONS), comment: z.string().max(4000).optional(), effectiveDate: z.string().max(10).optional(), attestation: z.boolean().optional() }))
+    .input(z.object({ revisionId, expectedRowVersion: z.number().int().positive(), action: z.enum(WORKFLOW_ACTIONS), comment: z.string().max(4000).optional(), effectiveDate: z.string().max(10).optional(), attestation: z.boolean().optional(), password: signaturePassword }))
     .mutation(({ ctx, input }) => run(() => service.transition(actorOf(ctx), input))),
   addComment: protectedProcedure
     .input(z.object({ revisionId, targetType: z.enum(["protocol", "section", "test", "criterion", "reference", "interval", "gap", "calculation"]), targetKey: z.string().max(200).nullable(), body: z.string().min(3).max(4000) }))
@@ -128,10 +132,32 @@ export const protocolsRouter = router({
 
   releasedForEquipment: protectedProcedure.input(z.object({ instrumentKey: z.string().min(1).max(64) })).query(({ input }) => run(() => service.releasedForEquipment(input.instrumentKey))),
   execute: protectedProcedure
-    .input(z.object({ revisionId, instrumentKey: z.string().min(1).max(64), measurements: measurementsSchema, validationRecordId: z.number().int().positive().nullable().optional(), stage: z.string().max(60).optional(), comments: z.string().max(4000).optional() }))
+    .input(z.object({ revisionId, instrumentKey: z.string().min(1).max(64), measurements: measurementsSchema, validationRecordId: z.number().int().positive().nullable().optional(),
+        stage: z.string().max(60).optional(), comments: z.string().max(4000).optional(),
+        activityKey: z.string().max(64).nullable().optional(),
+        deviations: z.array(z.object({ description: z.string().max(2000), impact: z.string().max(2000), immediateAction: z.string().max(2000), reference: z.string().max(200) })).max(20).optional(),
+      }))
     .mutation(({ ctx, input }) => run(() => service.executeProtocol(actorOf(ctx), input))),
-  executions: protectedProcedure.input(z.object({ protocolId: z.string().max(64).optional(), instrumentKey: z.string().max(64).optional() })).query(({ input }) => run(() => service.listExecutions(input))),
-  execution: protectedProcedure.input(z.object({ executionId: z.string().min(1).max(64) })).query(({ input }) => run(() => service.getExecution(input.executionId))),
+  executions: protectedProcedure.input(z.object({ protocolId: z.string().max(64).optional(), instrumentKey: z.string().max(64).optional(), reviewStatus: z.enum(EXECUTION_REVIEW_STATUSES).optional() })).query(({ input }) => run(() => service.listExecutions(input))),
+  execution: protectedProcedure.input(z.object({ executionId: z.string().min(1).max(64) })).query(({ ctx, input }) => run(() => service.getExecution(actorOf(ctx), input.executionId))),
+  reviewExecution: protectedProcedure
+    .input(z.object({ executionId: z.string().min(1).max(64), action: z.enum(EXECUTION_REVIEW_ACTIONS), comment: z.string().min(3).max(4000), password: signaturePassword }))
+    .mutation(({ ctx, input }) => run(() => service.reviewExecution(actorOf(ctx), input))),
+  schedule: protectedProcedure.input(z.object({ instrumentKey: z.string().max(64).optional() }).optional()).query(({ input }) => run(() => service.activitySchedule(input ?? {}))),
+  attachments: protectedProcedure
+    .input(z.object({ entityType: z.enum(ATTACHMENT_ENTITY_TYPES), entityId: z.string().min(1).max(64) }))
+    .query(({ input }) => run(() => service.listAttachments(input.entityType, input.entityId))),
+  uploadAttachment: protectedProcedure
+    .input(z.object({
+      entityType: z.enum(ATTACHMENT_ENTITY_TYPES),
+      entityId: z.string().min(1).max(64),
+      fileName: z.string().min(1).max(255),
+      mimeType: z.string().max(120),
+      contentBase64: z.string().min(1).max(Math.ceil((MAX_ATTACHMENT_BYTES * 4) / 3) + 8),
+      description: z.string().max(1000).optional(),
+    }))
+    .mutation(({ ctx, input }) => run(() => service.uploadAttachment(actorOf(ctx), input))),
+  downloadAttachment: protectedProcedure.input(z.object({ attachmentId: z.string().min(1).max(64) })).mutation(({ input }) => run(() => service.downloadAttachment(input.attachmentId))),
 
   notifications: protectedProcedure.query(({ ctx }) => run(() => service.listNotifications(actorOf(ctx)))),
   markNotificationRead: protectedProcedure.input(z.object({ notificationId: z.string().min(1).max(64) })).mutation(({ ctx, input }) => run(() => service.markNotificationRead(actorOf(ctx), input.notificationId))),

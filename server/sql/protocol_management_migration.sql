@@ -7,6 +7,8 @@
 --   * Safe to run more than once (IF NOT EXISTS / CREATE OR REPLACE / DROP TRIGGER IF EXISTS).
 --   * Runs in one transaction: either everything is applied or nothing is.
 --   * Ends with NOTIFY pgrst so PostgREST reloads its schema cache immediately.
+--   * If an earlier version of this file was already applied, simply run the
+--     whole (updated) file again: new tables/columns are added, nothing is lost.
 --   * Verify afterwards: GET https://<your-app>/api/health/schema
 --     → "protocolManagement": { "ok": true }.
 --
@@ -261,6 +263,60 @@ CREATE TABLE IF NOT EXISTS public.protocol_templates (
 );
 
 -- ---------------------------------------------------------------------------
+-- Module extension (v2): electronic re-authentication flag, execution
+-- activity / deviations, execution review & approval, controlled attachments.
+-- Additive and idempotent: safe on databases where the first version of this
+-- file was already applied (re-run the whole file).
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE public.protocol_approvals ADD COLUMN IF NOT EXISTS reauthenticated boolean NOT NULL DEFAULT false;
+ALTER TABLE public.protocol_executions ADD COLUMN IF NOT EXISTS activity_key text;
+ALTER TABLE public.protocol_executions ADD COLUMN IF NOT EXISTS activity_name text;
+ALTER TABLE public.protocol_executions ADD COLUMN IF NOT EXISTS deviations jsonb NOT NULL DEFAULT '[]'::jsonb;
+CREATE INDEX IF NOT EXISTS protocol_executions_activity_idx
+  ON public.protocol_executions(protocol_id, instrument_key, activity_key, executed_at);
+
+CREATE TABLE IF NOT EXISTS public.protocol_execution_reviews (
+  id text PRIMARY KEY,
+  execution_id text NOT NULL REFERENCES public.protocol_executions(id) ON DELETE RESTRICT,
+  protocol_id text NOT NULL REFERENCES public.protocols(id) ON DELETE RESTRICT,
+  action text NOT NULL,
+  from_status text NOT NULL,
+  to_status text NOT NULL,
+  signature_meaning text NOT NULL,
+  reauthenticated boolean NOT NULL DEFAULT false,
+  comment text NOT NULL CHECK (length(btrim(comment)) >= 3),
+  actor_user_id bigint NOT NULL REFERENCES public.app_users(id),
+  actor_name text,
+  actor_role text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT protocol_execution_reviews_step CHECK (
+    (action = 'review' AND from_status = 'recorded' AND to_status = 'reviewed')
+    OR (action = 'approve' AND from_status = 'reviewed' AND to_status = 'approved')
+    OR (action = 'reject' AND from_status IN ('recorded','reviewed') AND to_status = 'rejected')),
+  -- One decision per execution state: concurrent / duplicate decisions are impossible.
+  CONSTRAINT protocol_execution_reviews_once UNIQUE (execution_id, from_status)
+);
+CREATE INDEX IF NOT EXISTS protocol_execution_reviews_execution_idx ON public.protocol_execution_reviews(execution_id, created_at);
+
+CREATE TABLE IF NOT EXISTS public.protocol_attachments (
+  id text PRIMARY KEY,
+  entity_type text NOT NULL CHECK (entity_type IN ('execution','reference')),
+  entity_id text NOT NULL,
+  protocol_id text REFERENCES public.protocols(id),
+  file_name text NOT NULL,
+  mime_type text NOT NULL,
+  size_bytes integer NOT NULL CHECK (size_bytes > 0 AND size_bytes <= 3145728),
+  sha256 text NOT NULL CHECK (sha256 ~ '^[0-9a-f]{64}$'),
+  content_base64 text NOT NULL,
+  description text,
+  uploaded_by_user_id bigint NOT NULL REFERENCES public.app_users(id),
+  uploaded_by_name text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS protocol_attachments_entity_idx ON public.protocol_attachments(entity_type, entity_id);
+
+-- ---------------------------------------------------------------------------
 -- Database-level integrity guards
 -- ---------------------------------------------------------------------------
 
@@ -336,6 +392,30 @@ DROP TRIGGER IF EXISTS protocol_review_comments_guard ON public.protocol_review_
 CREATE TRIGGER protocol_review_comments_guard BEFORE UPDATE OR DELETE ON public.protocol_review_comments
   FOR EACH ROW EXECUTE FUNCTION public.protocol_review_comments_guard();
 
+CREATE OR REPLACE FUNCTION public.protocol_execution_reviews_sequence()
+RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.protocol_execution_reviews r
+             WHERE r.execution_id = NEW.execution_id AND r.to_status IN ('approved','rejected')) THEN
+    RAISE EXCEPTION 'protocol_execution_reviews: the execution already has a final decision';
+  END IF;
+  IF NEW.from_status = 'reviewed' AND NOT EXISTS (SELECT 1 FROM public.protocol_execution_reviews r
+             WHERE r.execution_id = NEW.execution_id AND r.to_status = 'reviewed') THEN
+    RAISE EXCEPTION 'protocol_execution_reviews: QA decision requires a completed technical review';
+  END IF;
+  IF NEW.from_status = 'recorded' AND EXISTS (SELECT 1 FROM public.protocol_execution_reviews r
+             WHERE r.execution_id = NEW.execution_id) THEN
+    RAISE EXCEPTION 'protocol_execution_reviews: the execution is no longer in the recorded state';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.protocol_executions e WHERE e.id = NEW.execution_id AND e.executed_by_user_id = NEW.actor_user_id) THEN
+    RAISE EXCEPTION 'protocol_execution_reviews: segregation of duties - the executor cannot review or approve their own execution';
+  END IF;
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS protocol_execution_reviews_sequence ON public.protocol_execution_reviews;
+CREATE TRIGGER protocol_execution_reviews_sequence BEFORE INSERT ON public.protocol_execution_reviews
+  FOR EACH ROW EXECUTE FUNCTION public.protocol_execution_reviews_sequence();
+
 CREATE OR REPLACE FUNCTION public.protocol_append_only_guard()
 RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
 BEGIN
@@ -346,7 +426,7 @@ DO $$
 DECLARE
   t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['protocol_approvals','protocol_audit_events','protocol_executions','protocol_notifications','protocol_notification_reads'] LOOP
+  FOREACH t IN ARRAY ARRAY['protocol_approvals','protocol_audit_events','protocol_executions','protocol_notifications','protocol_notification_reads','protocol_execution_reviews','protocol_attachments'] LOOP
     EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', t || '_append_only', t);
     EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.protocol_append_only_guard()', t || '_append_only', t);
   END LOOP;
@@ -372,7 +452,7 @@ DECLARE
   v_applied integer := 0;
   v_allowed constant text[] := ARRAY['protocols','protocol_revisions','protocol_references','protocol_approvals',
     'protocol_review_comments','protocol_audit_events','protocol_executions','protocol_notifications',
-    'protocol_notification_reads','protocol_duty_assignments','protocol_templates'];
+    'protocol_notification_reads','protocol_duty_assignments','protocol_templates','protocol_execution_reviews','protocol_attachments'];
 BEGIN
   IF p_changes IS NULL OR jsonb_typeof(p_changes) <> 'array' THEN
     RAISE EXCEPTION 'protocol_apply_changes: p_changes must be a JSON array';
@@ -428,7 +508,7 @@ DECLARE
 BEGIN
   FOREACH t IN ARRAY ARRAY['protocols','protocol_revisions','protocol_references','protocol_approvals',
     'protocol_review_comments','protocol_audit_events','protocol_executions','protocol_notifications',
-    'protocol_notification_reads','protocol_duty_assignments','protocol_templates'] LOOP
+    'protocol_notification_reads','protocol_duty_assignments','protocol_templates','protocol_execution_reviews','protocol_attachments'] LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('REVOKE ALL ON public.%I FROM anon, authenticated, service_role', t);
     EXECUTE format('GRANT SELECT ON public.%I TO service_role', t);
@@ -444,7 +524,7 @@ COMMIT;
 -- function immediately (avoids PGRST202/PGRST205 "not found in schema cache").
 NOTIFY pgrst, 'reload schema';
 
--- Verification: expect 11 rows.
+-- Verification: expect 13 rows.
 SELECT table_name FROM information_schema.tables
  WHERE table_schema = 'public' AND table_name LIKE 'protocol%'
  ORDER BY table_name;

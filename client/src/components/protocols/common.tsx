@@ -118,3 +118,20 @@ export function askReason(message: string, fallback = ""): string | null {
 }
 
 export const newKey = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
+
+/**
+ * Electronic signature (§14 / §20): the signer re-enters the account password.
+ * The password is verified on the server for this single action and is never
+ * stored or logged.
+ */
+export function SignatureBox({ meaning, signer, password, onPassword, detail }: { meaning: string | null; signer: string; password: string; onPassword: (v: string) => void; detail?: ReactNode }) {
+  return (
+    <div className="pm-signature">
+      <div className="pm-signature-head">Electronic signature{meaning ? <> — <strong>{meaning}</strong></> : null}</div>
+      <div className="pm-muted">
+        Signed by <strong>{signer}</strong>. Your identity, the date/time and the signature meaning are recorded{detail ? <> {detail}</> : null}. Re-enter your account password to sign.
+      </div>
+      <input type="password" autoComplete="current-password" placeholder="Account password" value={password} onChange={e => onPassword(e.target.value)} aria-label="Password for electronic signature" />
+    </div>
+  );
+}

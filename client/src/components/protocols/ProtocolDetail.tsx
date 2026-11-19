@@ -4,8 +4,9 @@ import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { COMPARISONS, GAP_DECISIONS, PENDING_LABEL, PROTOCOL_TYPES, SOURCE_CLASSES, STATUS_LABELS, allCriteria, type ProtocolContent, type RevisionStatus } from "@shared/protocols/model";
 import { TRANSITIONS, type WorkflowAction } from "@shared/protocols/workflow";
-import { ErrorBox, Field, Loading, Panel, PendingTag, ResultBadge, StatusBadge, askReason, errorText, fmtDate, type DetailTab, type Nav, type PmUser, type ProtocolDetailDto, type RevisionDetailDto } from "./common";
+import { ErrorBox, Field, Loading, Panel, PendingTag, ResultBadge, SignatureBox, StatusBadge, askReason, errorText, fmtDate, type DetailTab, type Nav, type PmUser, type ProtocolDetailDto, type RevisionDetailDto } from "./common";
 import { buildProtocolPdf, documentStatus } from "./protocolPdf";
+import { ExecutionDetailView, ReviewStatusBadge } from "./ExecutionReview";
 
 const ORGANIZATION = "National Drug Quality Control Laboratory — Supreme Board of Drugs";
 
@@ -92,7 +93,7 @@ export function ProtocolDetail({ protocolId, initialTab, initialRevisionId, user
       {tab === "review" && (rev.data ? <ReviewPanel r={rev.data} user={user} /> : <Loading />)}
       {tab === "revisions" && <Revisions d={d} user={user} setNav={setNav} onSelect={id => { setRevisionId(id); setTab("overview"); }} />}
       {tab === "compare" && <Compare d={d} />}
-      {tab === "executions" && <Executions d={d} />}
+      {tab === "executions" && <Executions d={d} user={user} />}
       {tab === "audit" && <Audit d={d} />}
     </div>
   );
@@ -219,6 +220,7 @@ export function ReviewPanel({ r, user }: { r: RevisionDetailDto; user: PmUser })
   const [comment, setComment] = useState("");
   const [effectiveDate, setEffectiveDate] = useState(new Date().toISOString().slice(0, 10));
   const [attest, setAttest] = useState(false);
+  const [password, setPassword] = useState("");
   const [newComment, setNewComment] = useState({ targetType: "protocol" as const, targetKey: "", body: "" });
   const [decision, setDecision] = useState<Record<string, { decision: string; rationale: string }>>({});
   const refresh = () => Promise.all([utils.protocols.revision.invalidate(), utils.protocols.detail.invalidate(), utils.protocols.list.invalidate(), utils.protocols.dashboard.invalidate(), utils.protocols.notifications.invalidate()]);
@@ -226,11 +228,12 @@ export function ReviewPanel({ r, user }: { r: RevisionDetailDto; user: PmUser })
     const rule = TRANSITIONS[action];
     if (rule.commentRequired && comment.trim().length < 3) return toast.error(`"${rule.label}" requires a comment / reason`);
     if (NEEDS_ATTESTATION.includes(action) && !attest) return toast.error("Confirm the attestation first");
-    if (rule.signatureMeaning && !window.confirm(`Electronic signature\n\nAction: ${rule.label}\nMeaning: ${rule.signatureMeaning}\nSigned by: ${user.name ?? user.id}\n\nThis is recorded with your identity, date/time and the content hash of revision ${r.revision.revisionNumber}.`)) return;
+    if (rule.signatureMeaning && !password) return toast.error(`"${rule.label}" is an electronic signature (${rule.signatureMeaning}) — re-enter your password`);
     try {
-      await transition.mutateAsync({ revisionId: r.revision.id, expectedRowVersion: r.revision.rowVersion, action, comment: comment.trim() || undefined, effectiveDate: action === "release" ? effectiveDate : undefined, attestation: NEEDS_ATTESTATION.includes(action) ? attest : undefined });
+      await transition.mutateAsync({ revisionId: r.revision.id, expectedRowVersion: r.revision.rowVersion, action, comment: comment.trim() || undefined, effectiveDate: action === "release" ? effectiveDate : undefined, attestation: NEEDS_ATTESTATION.includes(action) ? attest : undefined, password: rule.signatureMeaning ? password : undefined });
       setComment("");
       setAttest(false);
+      setPassword("");
       toast.success(`${rule.label}: done`);
     } catch (e) {
       toast.error(errorText(e));
@@ -254,6 +257,15 @@ export function ReviewPanel({ r, user }: { r: RevisionDetailDto; user: PmUser })
               <Field label="Comment / reason" hint="Required for returns, approval, rejection and retirement; stored with the signature."><textarea value={comment} onChange={e => setComment(e.target.value)} /></Field>
               {r.availableActions.some(a => NEEDS_ATTESTATION.includes(a as WorkflowAction)) && (
                 <label className="pm-check"><input type="checkbox" checked={attest} onChange={e => setAttest(e.target.checked)} /> I attest that I have reviewed the complete revision content, references, acceptance criteria and calculations, and that this decision is mine.</label>
+              )}
+              {r.availableActions.some(a => TRANSITIONS[a as WorkflowAction].signatureMeaning) && (
+                <SignatureBox
+                  meaning={r.availableActions.filter(a => TRANSITIONS[a as WorkflowAction].signatureMeaning).map(a => TRANSITIONS[a as WorkflowAction].signatureMeaning).join(" / ")}
+                  signer={user.name ?? `User #${user.id}`}
+                  password={password}
+                  onPassword={setPassword}
+                  detail={<>together with the content hash of revision {r.revision.revisionNumber}</>}
+                />
               )}
               {r.availableActions.includes("release") && <Field label="Effective date (release)"><input type="date" value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)} /></Field>}
               <div className="pm-row">
@@ -328,7 +340,7 @@ export function ReviewPanel({ r, user }: { r: RevisionDetailDto; user: PmUser })
               <div key={a.id}>
                 <strong>{TRANSITIONS[a.action as WorkflowAction]?.label ?? a.action}</strong> — {a.actorName} <span className="pm-muted">({a.actorRole})</span>
                 <div className="pm-muted">{fmtDate(a.createdAt, true)} · {STATUS_LABELS[a.fromStatus as RevisionStatus]} → {STATUS_LABELS[a.toStatus as RevisionStatus]}</div>
-                {a.signatureMeaning && <div className="pm-muted">Signature meaning: {a.signatureMeaning}</div>}
+                {a.signatureMeaning && <div className="pm-muted">Signature meaning: {a.signatureMeaning}{a.reauthenticated ? " · password re-authenticated" : ""}</div>}
                 {a.comment && <div>“{a.comment}”</div>}
               </div>
             ))}
@@ -425,14 +437,17 @@ function Compare({ d }: { d: ProtocolDetailDto }) {
   );
 }
 
-function Executions({ d }: { d: ProtocolDetailDto }) {
+function Executions({ d, user }: { d: ProtocolDetailDto; user: PmUser }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const duties = trpc.protocols.me.useQuery().data?.duties ?? [];
   return (
     <Panel title="Executions of this protocol">
       {!d.executions.length ? <div className="pm-empty">No executions recorded. Only released revisions can be executed.</div> : (
-        <div className="pm-table-wrap"><table className="pm-table"><thead><tr><th>Date</th><th>Revision</th><th>Equipment</th><th>Calculated outcome</th><th>By</th><th>Linked record</th></tr></thead><tbody>
-          {d.executions.map(e => <tr key={e.id}><td>{fmtDate(e.executedAt, true)}</td><td>Rev {e.revisionNumber}</td><td>{e.equipmentId} ({e.instrumentKey})</td><td><ResultBadge result={e.overallResult} /></td><td>{e.executedByName}</td><td>{e.validationRecordId ?? "—"}</td></tr>)}
+        <div className="pm-table-wrap"><table className="pm-table"><thead><tr><th>Date</th><th>Revision</th><th>Equipment</th><th>Activity</th><th>Calculated outcome</th><th>Review</th><th>By</th><th>Linked record</th></tr></thead><tbody>
+          {d.executions.map(e => <tr key={e.id} className={`is-click${open === e.id ? " is-active" : ""}`} onClick={() => setOpen(open === e.id ? null : e.id)}><td>{fmtDate(e.executedAt, true)}</td><td>Rev {e.revisionNumber}</td><td>{e.equipmentId} ({e.instrumentKey})</td><td>{e.activityName ?? "—"}</td><td><ResultBadge result={e.overallResult} /></td><td><ReviewStatusBadge status={e.reviewStatus} /></td><td>{e.executedByName}</td><td>{e.validationRecordId ? `#${e.validationRecordId}` : "—"}</td></tr>)}
         </tbody></table></div>
       )}
+      {open && <ExecutionDetailView key={open} executionId={open} user={user} duties={duties} />}
     </Panel>
   );
 }

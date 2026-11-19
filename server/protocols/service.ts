@@ -5,7 +5,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { devices } from "../../client/src/lib/qc";
-import { getValidationRecordById, listInstrumentProfiles } from "../db";
+import { getValidationRecordById, listInstrumentProfiles, localLogin } from "../db";
 import { adp220DraftContent, ADP220_EXPECTED_EQUIPMENT, ADP220_PROTOCOL_NUMBER, ADP220_REFERENCES, remapReferencePlaceholders } from "../../shared/protocols/adp220";
 import { compareContents, type DiffEntry } from "../../shared/protocols/compare";
 import { evaluateExecution, type Measurements } from "../../shared/protocols/evaluate";
@@ -23,6 +23,17 @@ import {
   type RevisionStatus,
 } from "../../shared/protocols/model";
 import { BUILTIN_TEMPLATES, contentFromTemplate, stripToStructure } from "../../shared/protocols/templates";
+import { ATTACHMENT_ENTITY_TYPES, MAX_ATTACHMENT_BYTES, attachmentTypeProblem, type AttachmentEntityType } from "../../shared/protocols/attachments";
+import {
+  EXECUTION_REVIEW_STATUS_LABELS,
+  availableExecutionActions,
+  executionReviewDenial,
+  executionReviewStatus,
+  executionReviewStep,
+  type ExecutionDeviation,
+  type ExecutionReviewAction,
+} from "../../shared/protocols/executionReview";
+import { DUE_SOON_DAYS, computeSchedule, type ScheduleItem } from "../../shared/protocols/schedule";
 import { approvalBlockers, structuralIssues, submissionIssues, type GapDecisionRecord, type ReferenceLookup } from "../../shared/protocols/validation";
 import {
   GRANTABLE_DUTIES,
@@ -42,7 +53,7 @@ import type { Change, ProtocolStore, Row } from "./tables";
 /* Infrastructure                                                       */
 /* ------------------------------------------------------------------ */
 
-export type Actor = { id: number; name: string | null; role: BaseRole };
+export type Actor = { id: number; name: string | null; role: BaseRole; email?: string | null };
 
 export class ProtocolError extends Error {
   constructor(
@@ -83,6 +94,32 @@ async function requireDuty(actor: Actor, ...allowed: ProtocolDuty[]) {
 }
 
 const actorRole = (actor: Actor, duties: readonly string[]) => `${actor.role}${duties.length ? ` [${duties.join(", ")}]` : ""}`;
+
+/* Electronic signature: every signature manifestation requires re-entering the account password. */
+type SignatureVerifier = (actor: Actor, password: string) => Promise<boolean>;
+const defaultSignatureVerifier: SignatureVerifier = async (actor, password) => {
+  if (!actor.email || !password) return false;
+  try {
+    const verified = await localLogin({ email: actor.email, password, recordActivity: false });
+    return verified.id === actor.id && verified.isActive;
+  } catch {
+    return false;
+  }
+};
+let signatureVerifier: SignatureVerifier = defaultSignatureVerifier;
+/** Test hook (PostgreSQL verification script has no auth backend). Production always uses the account password. */
+export function setSignatureVerifierForTests(verifier: SignatureVerifier | null) {
+  signatureVerifier = verifier ?? defaultSignatureVerifier;
+}
+
+async function requireSignature(actor: Actor, duties: readonly string[], password: string | undefined, context: { protocolId?: string | null; revisionId?: string | null; revisionNumber?: number | null; entityType: string; entityId: string; meaning: string }) {
+  if (!password) throw new ProtocolError("BAD_REQUEST", `Electronic signature required (${context.meaning}): re-enter your password to sign`);
+  if (await signatureVerifier(actor, password)) return;
+  await protocolStore().apply([
+    audit(actor, duties, { protocolId: context.protocolId, revisionId: context.revisionId, revisionNumber: context.revisionNumber, entityType: context.entityType, entityId: context.entityId, action: "signature.failed", next: { meaning: context.meaning } }),
+  ]);
+  throw new ProtocolError("FORBIDDEN", "Electronic signature failed: the password is not correct. Nothing was signed.");
+}
 
 function audit(actor: Actor, duties: readonly string[], input: { protocolId?: string | null; revisionId?: string | null; revisionNumber?: number | null; entityType: string; entityId?: string | null; action: string; previous?: unknown; next?: unknown; reason?: string | null }): Change {
   return {
@@ -478,7 +515,13 @@ export async function listProtocols(filters: RegistryFilters = {}) {
 }
 
 export async function dashboard() {
-  const rows = await registryRows();
+  await refreshDueNotifications();
+  const [rows, schedule, executionRows] = await Promise.all([
+    registryRows(),
+    activitySchedule(),
+    protocolStore().select<Row>("protocol_executions", { columns: EXECUTION_SUMMARY_COLUMNS, order: [{ column: "executed_at", desc: true }], limit: 500 }),
+  ]);
+  const executionsWithStatus = await withReviewStatus(executionRows);
   const countStatus = (s: string) => rows.filter(r => matchesStatus(r, s)).length;
   const [recentApprovals, comments] = await Promise.all([
     protocolStore().select<Row>("protocol_approvals", { order: [{ column: "created_at", desc: true }], limit: 50 }),
@@ -502,6 +545,10 @@ export async function dashboard() {
     pendingVerification: rows.filter(r => r.pendingVerification > 0).length,
     openGaps: rows.filter(r => r.openGaps > 0).length,
     reviewFlagged: rows.filter(r => r.reviewFlag).length,
+    activitiesOverdue: schedule.filter(i => i.state === "overdue").length,
+    activitiesDueSoon: schedule.filter(i => i.state === "due-soon").length,
+    executionsAwaitingReview: executionsWithStatus.filter(e => e.reviewStatus === "recorded").length,
+    executionsAwaitingApproval: executionsWithStatus.filter(e => e.reviewStatus === "reviewed").length,
   };
   const pick = (action: string) =>
     recentApprovals.filter(a => a.action === action).slice(0, 5).map(a => ({ protocolId: String(a.protocol_id), protocolNumber: byId.get(String(a.protocol_id))?.protocolNumber ?? "", revisionNumber: Number(a.revision_number), actorName: a.actor_name as string | null, at: String(a.created_at) }));
@@ -511,6 +558,8 @@ export async function dashboard() {
     recentlyCreated: [...rows].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5).map(r => ({ id: r.id, protocolNumber: r.protocolNumber, title: r.title, createdAt: r.createdAt, status: r.status })),
     recentlyApproved: pick("qa-approve"),
     recentlyReleased: pick("release"),
+    upcomingActivities: schedule.filter(i => i.state !== "event-based").slice(0, 12),
+    executionsPendingDecision: executionsWithStatus.filter(e => e.reviewStatus === "recorded" || e.reviewStatus === "reviewed").slice(0, 10),
     upcomingReviews: rows.filter(r => r.releasedRevision?.nextReviewDate).sort((a, b) => (a.releasedRevision!.nextReviewDate as string).localeCompare(b.releasedRevision!.nextReviewDate as string)).slice(0, 8).map(r => ({ id: r.id, protocolNumber: r.protocolNumber, nextReviewDate: r.releasedRevision!.nextReviewDate, overdue: r.overdueForReview })),
     unresolvedIssues: [
       ...rows.filter(r => r.openGaps > 0).map(r => ({ protocolId: r.id, protocolNumber: r.protocolNumber, issue: `${r.openGaps} technical gap(s) without reviewer decision` })),
@@ -527,7 +576,7 @@ export async function getProtocolDetail(protocolId: string) {
     revisionSummaries(protocolId),
     protocolStore().select<Row>("protocol_approvals", { where: { protocol_id: protocolId }, order: [{ column: "created_at" }] }),
     protocolStore().select<CommentRow>("protocol_review_comments", { where: { protocol_id: protocolId }, order: [{ column: "created_at" }] }),
-    protocolStore().select<Row>("protocol_executions", { where: { protocol_id: protocolId }, columns: ["id", "revision_id", "revision_number", "instrument_key", "equipment_id", "validation_record_id", "overall_result", "executed_by_name", "executed_at", "engine_version"], order: [{ column: "executed_at", desc: true }] }),
+    protocolStore().select<Row>("protocol_executions", { where: { protocol_id: protocolId }, columns: EXECUTION_SUMMARY_COLUMNS, order: [{ column: "executed_at", desc: true }] }),
     protocolStore().select<Row>("protocol_audit_events", { where: { protocol_id: protocolId }, order: [{ column: "created_at", desc: true }], limit: 300 }),
   ]);
   return {
@@ -535,21 +584,22 @@ export async function getProtocolDetail(protocolId: string) {
     revisions: revisions.map(mapRevisionSummary),
     approvals: approvals.map(mapApproval),
     comments: comments.map(mapComment),
-    executions: executions.map(mapExecutionSummary),
+    executions: await withReviewStatus(executions),
     audit: auditRows.map(mapAudit),
   };
 }
 
 function mapApproval(a: Row) {
-  return { id: String(a.id), revisionId: String(a.revision_id), revisionNumber: Number(a.revision_number), action: String(a.action), fromStatus: String(a.from_status), toStatus: String(a.to_status), signatureMeaning: (a.signature_meaning as string | null) ?? null, actorUserId: Number(a.actor_user_id), actorName: (a.actor_name as string | null) ?? null, actorRole: (a.actor_role as string | null) ?? null, comment: (a.comment as string | null) ?? null, contentHash: String(a.content_hash), createdAt: String(a.created_at) };
+  return { id: String(a.id), revisionId: String(a.revision_id), revisionNumber: Number(a.revision_number), action: String(a.action), fromStatus: String(a.from_status), toStatus: String(a.to_status), signatureMeaning: (a.signature_meaning as string | null) ?? null, actorUserId: Number(a.actor_user_id), actorName: (a.actor_name as string | null) ?? null, actorRole: (a.actor_role as string | null) ?? null, comment: (a.comment as string | null) ?? null, contentHash: String(a.content_hash), createdAt: String(a.created_at), reauthenticated: a.reauthenticated === true };
 }
 export type ApprovalDto = ReturnType<typeof mapApproval>;
 function mapAudit(a: Row) {
   return { id: String(a.id), protocolId: (a.protocol_id as string | null) ?? null, revisionId: (a.revision_id as string | null) ?? null, revisionNumber: (a.revision_number as number | null) ?? null, entityType: String(a.entity_type), entityId: (a.entity_id as string | null) ?? null, action: String(a.action), actorUserId: Number(a.actor_user_id), actorName: (a.actor_name as string | null) ?? null, actorRole: (a.actor_role as string | null) ?? null, previousValue: a.previous_value ?? null, newValue: a.new_value ?? null, reason: (a.reason as string | null) ?? null, createdAt: String(a.created_at) };
 }
 function mapExecutionSummary(e: Row) {
-  return { id: String(e.id), protocolId: e.protocol_id ? String(e.protocol_id) : undefined, protocolNumber: e.protocol_number ? String(e.protocol_number) : undefined, revisionId: String(e.revision_id), revisionNumber: Number(e.revision_number), instrumentKey: String(e.instrument_key), equipmentId: (e.equipment_id as string | null) ?? null, validationRecordId: (e.validation_record_id as number | null) ?? null, overallResult: String(e.overall_result), executedByName: (e.executed_by_name as string | null) ?? null, executedAt: String(e.executed_at), engineVersion: String(e.engine_version) };
+  return { id: String(e.id), protocolId: e.protocol_id ? String(e.protocol_id) : undefined, protocolNumber: e.protocol_number ? String(e.protocol_number) : undefined, revisionId: String(e.revision_id), revisionNumber: Number(e.revision_number), instrumentKey: String(e.instrument_key), equipmentId: (e.equipment_id as string | null) ?? null, validationRecordId: (e.validation_record_id as number | null) ?? null, overallResult: String(e.overall_result), executedByUserId: Number(e.executed_by_user_id ?? 0), executedByName: (e.executed_by_name as string | null) ?? null, executedAt: String(e.executed_at), engineVersion: String(e.engine_version), activityKey: (e.activity_key as string | null) ?? null, activityName: (e.activity_name as string | null) ?? null };
 }
+const EXECUTION_SUMMARY_COLUMNS = ["id", "protocol_id", "protocol_number", "revision_id", "revision_number", "instrument_key", "equipment_id", "validation_record_id", "overall_result", "executed_by_user_id", "executed_by_name", "executed_at", "engine_version", "activity_key", "activity_name"];
 
 export async function getRevision(actor: Actor, revisionId: string) {
   const revision = await loadRevision(revisionId);
@@ -800,7 +850,7 @@ export async function createRevision(actor: Actor, input: { protocolId: string; 
 /* Review & approval workflow                                           */
 /* ------------------------------------------------------------------ */
 
-export async function transition(actor: Actor, input: { revisionId: string; expectedRowVersion: number; action: WorkflowAction; comment?: string; effectiveDate?: string; attestation?: boolean }) {
+export async function transition(actor: Actor, input: { revisionId: string; expectedRowVersion: number; action: WorkflowAction; comment?: string; effectiveDate?: string; attestation?: boolean; password?: string }) {
   const duties = await dutiesOf(actor);
   const revision = await loadRevision(input.revisionId);
   if (revision.row_version !== input.expectedRowVersion) throw new ProtocolError("PRECONDITION_FAILED", "The revision changed since it was loaded (possible duplicate submission); reload and retry");
@@ -869,11 +919,13 @@ export async function transition(actor: Actor, input: { revisionId: string; expe
       Object.assign(set, { retired_at: t });
       break;
   }
+  if (rule.signatureMeaning)
+    await requireSignature(actor, duties, input.password, { protocolId: protocol.id, revisionId: revision.id, revisionNumber: revision.revision_number, entityType: "revision", entityId: revision.id, meaning: rule.signatureMeaning });
   changes.push({ op: "update", table: "protocol_revisions", id: revision.id, set, expect: { row_version: revision.row_version, status: revision.status } });
   changes.push({
     op: "insert",
     table: "protocol_approvals",
-    row: { id: id(), protocol_id: protocol.id, revision_id: revision.id, revision_number: revision.revision_number, action: input.action, from_status: revision.status, to_status: rule.to, signature_meaning: rule.signatureMeaning, actor_user_id: actor.id, actor_name: actor.name, actor_role: actorRole(actor, duties), comment: comment || null, content_hash: revision.content_hash, created_at: t },
+    row: { id: id(), protocol_id: protocol.id, revision_id: revision.id, revision_number: revision.revision_number, action: input.action, from_status: revision.status, to_status: rule.to, signature_meaning: rule.signatureMeaning, actor_user_id: actor.id, actor_name: actor.name, actor_role: actorRole(actor, duties), comment: comment || null, content_hash: revision.content_hash, created_at: t, reauthenticated: Boolean(rule.signatureMeaning) },
   });
   const revs = (await revisionSummaries(protocol.id)).map(r => (r.id === revision.id ? { ...r, status: rule.to } : input.action === "release" && r.status === "released" ? { ...r, status: "superseded" as RevisionStatus } : r));
   const header: Row = { status: deriveProtocolStatus(revs), updated_at: t, row_version: protocol.row_version + 1 };
@@ -965,7 +1017,7 @@ export async function releasedForEquipment(instrumentKey: string) {
   return { equipment, released: out, notExecutable: drafts };
 }
 
-export async function executeProtocol(actor: Actor, input: { revisionId: string; instrumentKey: string; measurements: Measurements; validationRecordId?: number | null; stage?: string; comments?: string }) {
+export async function executeProtocol(actor: Actor, input: { revisionId: string; instrumentKey: string; measurements: Measurements; validationRecordId?: number | null; stage?: string; comments?: string; activityKey?: string | null; deviations?: ExecutionDeviation[] }) {
   const duties = await requireDuty(actor, "executor");
   const revision = await loadRevision(input.revisionId);
   if (revision.status !== "released")
@@ -980,6 +1032,10 @@ export async function executeProtocol(actor: Actor, input: { revisionId: string;
     if (!record) throw new ProtocolError("NOT_FOUND", "Linked validation record not found");
     if (record.instrumentKey !== input.instrumentKey) throw new ProtocolError("PRECONDITION_FAILED", "Linked validation record belongs to different equipment");
   }
+  const activity = input.activityKey ? revision.content.intervals.find(i => i.key === input.activityKey) : null;
+  if (input.activityKey && !activity) throw new ProtocolError("BAD_REQUEST", "The selected interval activity is not defined in this protocol revision");
+  const deviations = (input.deviations ?? []).map(d => ({ description: d.description.trim(), impact: d.impact.trim(), immediateAction: d.immediateAction.trim(), reference: d.reference.trim() }));
+  if (deviations.some(d => d.description.length < 5)) throw new ProtocolError("BAD_REQUEST", "Each deviation needs a description (at least 5 characters)");
   const knownTests = new Set(revision.content.sections.flatMap(s => s.tests.map(t => t.key)));
   const unknown = Object.keys(input.measurements).filter(k => !knownTests.has(k));
   if (unknown.length) throw new ProtocolError("BAD_REQUEST", "Measurements reference tests that are not part of this revision", unknown);
@@ -990,27 +1046,250 @@ export async function executeProtocol(actor: Actor, input: { revisionId: string;
     {
       op: "insert",
       table: "protocol_executions",
-      row: { id: executionId, protocol_id: protocol.id, revision_id: revision.id, protocol_number: protocol.protocol_number, revision_number: revision.revision_number, content_hash: revision.content_hash, instrument_key: equipment.instrumentKey, equipment_id: equipment.instrumentId, serial_number: equipment.serialNumber, validation_record_id: input.validationRecordId ?? null, stage: input.stage ?? null, measurements: input.measurements, evaluation, overall_result: evaluation.overall, engine_version: evaluation.engineVersion, protocol_snapshot: revision.content, reference_snapshot: revision.reference_snapshot ?? null, comments: input.comments ?? null, executed_by_user_id: actor.id, executed_by_name: actor.name, executed_at: t, created_at: t },
+      row: { id: executionId, protocol_id: protocol.id, revision_id: revision.id, protocol_number: protocol.protocol_number, revision_number: revision.revision_number, content_hash: revision.content_hash, instrument_key: equipment.instrumentKey, equipment_id: equipment.instrumentId, serial_number: equipment.serialNumber, validation_record_id: input.validationRecordId ?? null, stage: input.stage ?? null, measurements: input.measurements, evaluation, overall_result: evaluation.overall, engine_version: evaluation.engineVersion, protocol_snapshot: revision.content, reference_snapshot: revision.reference_snapshot ?? null, comments: input.comments ?? null, executed_by_user_id: actor.id, executed_by_name: actor.name, executed_at: t, created_at: t, activity_key: activity?.key ?? null, activity_name: activity?.activity ?? null, deviations },
     },
-    audit(actor, duties, { protocolId: protocol.id, revisionId: revision.id, revisionNumber: revision.revision_number, entityType: "execution", entityId: executionId, action: "execution.recorded", next: { overall: evaluation.overall, counts: evaluation.counts, instrumentKey: equipment.instrumentKey, equipmentId: equipment.instrumentId, validationRecordId: input.validationRecordId ?? null, contentHash: revision.content_hash } }),
+    audit(actor, duties, { protocolId: protocol.id, revisionId: revision.id, revisionNumber: revision.revision_number, entityType: "execution", entityId: executionId, action: "execution.recorded", next: { overall: evaluation.overall, counts: evaluation.counts, instrumentKey: equipment.instrumentKey, equipmentId: equipment.instrumentId, validationRecordId: input.validationRecordId ?? null, contentHash: revision.content_hash, activity: activity?.activity ?? null, deviations: deviations.length } }),
+    notify("execution-review-required", "technical-reviewer", null, protocol.id, revision.id, `${protocol.protocol_number} rev ${revision.revision_number}: execution on ${equipment.instrumentId} recorded (calculated ${evaluation.overall}${deviations.length ? `, ${deviations.length} deviation(s)` : ""}) — technical review required`, `exec-recorded:${executionId}`),
   ]);
   return { executionId, evaluation };
 }
 
-export async function listExecutions(input: { protocolId?: string; instrumentKey?: string; limit?: number }) {
+type ExecutionReviewRowDb = { id: string; execution_id: string; protocol_id: string; action: string; from_status: string; to_status: string; signature_meaning: string; reauthenticated: boolean; comment: string; actor_user_id: number; actor_name: string | null; actor_role: string | null; created_at: string };
+
+async function reviewsByExecution(executionIds: string[]) {
+  const map = new Map<string, ExecutionReviewRowDb[]>();
+  if (!executionIds.length) return map;
+  const rows = await protocolStore().select<ExecutionReviewRowDb>("protocol_execution_reviews", { in: { column: "execution_id", values: executionIds }, order: [{ column: "created_at" }] });
+  rows.forEach(r => map.set(r.execution_id, [...(map.get(r.execution_id) ?? []), r]));
+  return map;
+}
+const mapExecutionReview = (r: ExecutionReviewRowDb) => ({ id: r.id, action: r.action, fromStatus: r.from_status, toStatus: r.to_status, signatureMeaning: r.signature_meaning, reauthenticated: r.reauthenticated === true, comment: r.comment, actorUserId: r.actor_user_id, actorName: r.actor_name, actorRole: r.actor_role, createdAt: r.created_at });
+
+async function withReviewStatus(rows: Row[]) {
+  const reviews = await reviewsByExecution(rows.map(r => String(r.id)));
+  return rows.map(r => {
+    const list = reviews.get(String(r.id)) ?? [];
+    const status = executionReviewStatus(list.map(x => ({ toStatus: x.to_status })));
+    return { ...mapExecutionSummary(r), reviewStatus: status, reviewStatusLabel: EXECUTION_REVIEW_STATUS_LABELS[status] };
+  });
+}
+
+export async function listExecutions(input: { protocolId?: string; instrumentKey?: string; reviewStatus?: string; limit?: number }) {
   const rows = await protocolStore().select<Row>("protocol_executions", {
     where: { ...(input.protocolId ? { protocol_id: input.protocolId } : {}), ...(input.instrumentKey ? { instrument_key: input.instrumentKey } : {}) },
-    columns: ["id", "protocol_id", "protocol_number", "revision_id", "revision_number", "instrument_key", "equipment_id", "validation_record_id", "overall_result", "executed_by_name", "executed_at", "engine_version"],
+    columns: EXECUTION_SUMMARY_COLUMNS,
     order: [{ column: "executed_at", desc: true }],
     limit: Math.min(500, input.limit ?? 200),
   });
-  return rows.map(mapExecutionSummary);
+  const out = await withReviewStatus(rows);
+  return input.reviewStatus ? out.filter(r => r.reviewStatus === input.reviewStatus) : out;
 }
 
-export async function getExecution(executionId: string) {
+export async function getExecution(actor: Actor, executionId: string) {
   const [row] = await protocolStore().select<Row>("protocol_executions", { where: { id: executionId }, limit: 1 });
   if (!row) throw new ProtocolError("NOT_FOUND", "Execution not found");
-  return { ...mapExecutionSummary(row), contentHash: String(row.content_hash), serialNumber: row.serial_number as string | null, stage: row.stage as string | null, measurements: row.measurements as Measurements, evaluation: row.evaluation as ReturnType<typeof evaluateExecution>, protocolSnapshot: row.protocol_snapshot as ProtocolContent, referenceSnapshot: row.reference_snapshot ?? null, comments: row.comments as string | null };
+  const [reviews, duties, attachments] = await Promise.all([reviewsByExecution([executionId]), dutiesOf(actor), listAttachments("execution", executionId)]);
+  const list = reviews.get(executionId) ?? [];
+  const status = executionReviewStatus(list.map(x => ({ toStatus: x.to_status })));
+  const technicalReviewer = list.find(r => r.to_status === "reviewed");
+  const qaDecision = list.find(r => r.from_status === "reviewed");
+  let linkedRecord: { id: number; lifecycleStatus: string; resultStatus: string; approvedAt: string | null; createdAt: string } | null = null;
+  if (row.validation_record_id) {
+    try {
+      const rec = await getValidationRecordById(Number(row.validation_record_id));
+      if (rec) linkedRecord = { id: rec.id, lifecycleStatus: String(rec.lifecycleStatus), resultStatus: String(rec.resultStatus), approvedAt: rec.approvedAt ? new Date(rec.approvedAt).toISOString() : null, createdAt: new Date(rec.createdAt).toISOString() };
+    } catch {
+      linkedRecord = null;
+    }
+  }
+  return {
+    ...mapExecutionSummary(row),
+    contentHash: String(row.content_hash),
+    serialNumber: row.serial_number as string | null,
+    stage: row.stage as string | null,
+    measurements: row.measurements as Measurements,
+    evaluation: row.evaluation as ReturnType<typeof evaluateExecution>,
+    protocolSnapshot: row.protocol_snapshot as ProtocolContent,
+    referenceSnapshot: row.reference_snapshot ?? null,
+    comments: row.comments as string | null,
+    deviations: (row.deviations as ExecutionDeviation[] | null) ?? [],
+    reviewStatus: status,
+    reviewStatusLabel: EXECUTION_REVIEW_STATUS_LABELS[status],
+    reviews: list.map(mapExecutionReview),
+    reviewerName: technicalReviewer?.actor_name ?? null,
+    approverName: qaDecision?.to_status === "approved" ? qaDecision.actor_name : null,
+    availableReviewActions: availableExecutionActions({ status, executedByUserId: Number(row.executed_by_user_id), technicalReviewerUserId: technicalReviewer?.actor_user_id ?? null, overallResult: String(row.overall_result) }, { id: actor.id, duties }),
+    attachments,
+    linkedRecord,
+  };
+}
+
+export async function reviewExecution(actor: Actor, input: { executionId: string; action: ExecutionReviewAction; comment: string; password?: string }) {
+  const duties = await dutiesOf(actor);
+  const [row] = await protocolStore().select<Row>("protocol_executions", { where: { id: input.executionId }, columns: EXECUTION_SUMMARY_COLUMNS, limit: 1 });
+  if (!row) throw new ProtocolError("NOT_FOUND", "Execution not found");
+  const list = (await reviewsByExecution([input.executionId])).get(input.executionId) ?? [];
+  const status = executionReviewStatus(list.map(x => ({ toStatus: x.to_status })));
+  const technicalReviewer = list.find(r => r.to_status === "reviewed")?.actor_user_id ?? null;
+  const ctx = { status, executedByUserId: Number(row.executed_by_user_id), technicalReviewerUserId: technicalReviewer, overallResult: String(row.overall_result) };
+  const denial = executionReviewDenial(input.action, ctx, { id: actor.id, duties });
+  if (denial) throw new ProtocolError(/requires the|Segregation/.test(denial) ? "FORBIDDEN" : "PRECONDITION_FAILED", denial);
+  const comment = input.comment.trim();
+  if (comment.length < 3) throw new ProtocolError("BAD_REQUEST", "A review comment / decision rationale is required");
+  const step = executionReviewStep(input.action, status);
+  const protocolId = String(row.protocol_id);
+  await requireSignature(actor, duties, input.password, { protocolId, revisionId: String(row.revision_id), revisionNumber: Number(row.revision_number), entityType: "execution", entityId: input.executionId, meaning: step.signatureMeaning });
+  const t = now();
+  const reviewId = id();
+  const label = `${row.protocol_number} rev ${row.revision_number} execution on ${row.equipment_id ?? row.instrument_key}`;
+  const changes: Change[] = [
+    { op: "insert", table: "protocol_execution_reviews", row: { id: reviewId, execution_id: input.executionId, protocol_id: protocolId, action: input.action, from_status: step.from, to_status: step.to, signature_meaning: step.signatureMeaning, reauthenticated: true, comment, actor_user_id: actor.id, actor_name: actor.name, actor_role: actorRole(actor, duties), created_at: t } },
+    audit(actor, duties, { protocolId, revisionId: String(row.revision_id), revisionNumber: Number(row.revision_number), entityType: "execution", entityId: input.executionId, action: `execution.${input.action}`, previous: { reviewStatus: status }, next: { reviewStatus: step.to, calculatedResult: row.overall_result, signatureMeaning: step.signatureMeaning }, reason: comment }),
+  ];
+  if (step.to === "reviewed") changes.push(notify("execution-approval-required", "qa-approver", null, protocolId, String(row.revision_id), `${label}: technically reviewed — QA approval required`, `exec-reviewed:${input.executionId}`));
+  else changes.push(notify(`execution-${step.to}`, null, Number(row.executed_by_user_id), protocolId, String(row.revision_id), `${label}: ${EXECUTION_REVIEW_STATUS_LABELS[step.to]} — ${comment.slice(0, 160)}`, `exec-${step.to}:${input.executionId}`));
+  try {
+    await protocolStore().apply(changes);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/unique|duplicate key|final decision|no longer in the recorded|requires a completed technical review/i.test(message))
+      throw new ProtocolError("PRECONDITION_FAILED", "The execution was decided by another user in the meantime (duplicate decision prevented); reload and check its status");
+    throw error;
+  }
+  return { reviewStatus: step.to };
+}
+
+/* ------------------------------------------------------------------ */
+/* Controlled attachments                                               */
+/* ------------------------------------------------------------------ */
+
+const ATTACHMENT_LIST_COLUMNS = ["id", "entity_type", "entity_id", "protocol_id", "file_name", "mime_type", "size_bytes", "sha256", "description", "uploaded_by_user_id", "uploaded_by_name", "created_at"];
+const mapAttachment = (r: Row) => ({ id: String(r.id), entityType: String(r.entity_type), entityId: String(r.entity_id), fileName: String(r.file_name), mimeType: String(r.mime_type), sizeBytes: Number(r.size_bytes), sha256: String(r.sha256), description: (r.description as string | null) ?? "", uploadedByName: (r.uploaded_by_name as string | null) ?? null, createdAt: String(r.created_at) });
+
+export async function listAttachments(entityType: AttachmentEntityType, entityId: string) {
+  const rows = await protocolStore().select<Row>("protocol_attachments", { where: { entity_type: entityType, entity_id: entityId }, columns: ATTACHMENT_LIST_COLUMNS, order: [{ column: "created_at" }] });
+  return rows.map(mapAttachment);
+}
+
+export async function uploadAttachment(actor: Actor, input: { entityType: AttachmentEntityType; entityId: string; fileName: string; mimeType: string; contentBase64: string; description?: string }) {
+  if (!ATTACHMENT_ENTITY_TYPES.includes(input.entityType)) throw new ProtocolError("BAD_REQUEST", "Unsupported attachment target");
+  const fileName = input.fileName.trim().replace(/[\\/]+/g, "_").slice(0, 200);
+  if (!fileName) throw new ProtocolError("BAD_REQUEST", "File name is required");
+  const typeProblem = attachmentTypeProblem(fileName, input.mimeType);
+  if (typeProblem) throw new ProtocolError("BAD_REQUEST", typeProblem);
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(input.contentBase64)) throw new ProtocolError("BAD_REQUEST", "File content is not valid base64");
+  const bytes = Buffer.from(input.contentBase64, "base64");
+  if (!bytes.length) throw new ProtocolError("BAD_REQUEST", "The file is empty");
+  if (bytes.length > MAX_ATTACHMENT_BYTES) throw new ProtocolError("BAD_REQUEST", `The file exceeds the ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB limit`);
+  let duties: ProtocolDuty[];
+  let protocolId: string | null = null;
+  let revisionId: string | null = null;
+  let revisionNumber: number | null = null;
+  if (input.entityType === "execution") {
+    duties = await dutiesOf(actor);
+    const [row] = await protocolStore().select<Row>("protocol_executions", { where: { id: input.entityId }, columns: EXECUTION_SUMMARY_COLUMNS, limit: 1 });
+    if (!row) throw new ProtocolError("NOT_FOUND", "Execution not found");
+    const status = executionReviewStatus(((await reviewsByExecution([input.entityId])).get(input.entityId) ?? []).map(x => ({ toStatus: x.to_status })));
+    if (status === "approved" || status === "rejected") throw new ProtocolError("PRECONDITION_FAILED", "Evidence cannot be added after the final QA decision");
+    const isExecutor = Number(row.executed_by_user_id) === actor.id;
+    if (!isExecutor && !duties.some(d => d === "technical-reviewer" || d === "qa-approver"))
+      throw new ProtocolError("FORBIDDEN", "Evidence is attached by the executor of the execution or by its reviewers");
+    if (isExecutor && !duties.includes("executor")) throw new ProtocolError("FORBIDDEN", "The Executor duty is required");
+    protocolId = String(row.protocol_id);
+    revisionId = String(row.revision_id);
+    revisionNumber = Number(row.revision_number);
+  } else {
+    duties = await requireDuty(actor, "author", "technical-reviewer", "qa-approver");
+    const [ref] = await protocolStore().select<Row>("protocol_references", { where: { id: input.entityId }, columns: ["id"], limit: 1 });
+    if (!ref) throw new ProtocolError("NOT_FOUND", "Reference not found");
+  }
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const attachmentId = id();
+  const description = (input.description ?? "").trim().slice(0, 1000);
+  await protocolStore().apply([
+    { op: "insert", table: "protocol_attachments", row: { id: attachmentId, entity_type: input.entityType, entity_id: input.entityId, protocol_id: protocolId, file_name: fileName, mime_type: input.mimeType, size_bytes: bytes.length, sha256, content_base64: bytes.toString("base64"), description, uploaded_by_user_id: actor.id, uploaded_by_name: actor.name, created_at: now() } },
+    audit(actor, duties, { protocolId, revisionId, revisionNumber, entityType: "attachment", entityId: attachmentId, action: "attachment.uploaded", next: { target: `${input.entityType}:${input.entityId}`, fileName, mimeType: input.mimeType, sizeBytes: bytes.length, sha256, description } }),
+  ]);
+  return { id: attachmentId, sha256, sizeBytes: bytes.length };
+}
+
+export async function downloadAttachment(attachmentId: string) {
+  const [row] = await protocolStore().select<Row>("protocol_attachments", { where: { id: attachmentId }, limit: 1 });
+  if (!row) throw new ProtocolError("NOT_FOUND", "Attachment not found");
+  const content = String(row.content_base64);
+  const actual = createHash("sha256").update(Buffer.from(content, "base64")).digest("hex");
+  return { ...mapAttachment(row), contentBase64: content, integrityOk: actual === String(row.sha256) };
+}
+
+/* ------------------------------------------------------------------ */
+/* Interval / activity schedule (§13.2) and due alerts                  */
+/* ------------------------------------------------------------------ */
+
+export async function activitySchedule(filter: { instrumentKey?: string } = {}): Promise<ScheduleItem[]> {
+  const protocols = (await protocolStore().select<ProtocolRow>("protocols", { order: [{ column: "protocol_number" }] })).filter(p => p.released_revision_id);
+  if (!protocols.length) return [];
+  const [registry, revisions, executions] = await Promise.all([
+    equipmentRegistry(),
+    protocolStore().select<RevisionRow>("protocol_revisions", { in: { column: "id", values: protocols.map(p => p.released_revision_id as string) } }),
+    protocolStore().select<Row>("protocol_executions", { in: { column: "protocol_id", values: protocols.map(p => p.id) }, columns: ["id", "protocol_id", "instrument_key", "activity_key", "executed_at", "overall_result"] }),
+  ]);
+  const reviews = await reviewsByExecution(executions.map(e => String(e.id)));
+  const inputs = protocols.flatMap(p => {
+    const revision = revisions.find(r => r.id === p.released_revision_id && r.status === "released");
+    if (!revision) return [];
+    const content = revision.content;
+    const equipment = registry.filter(e => {
+      if (filter.instrumentKey && e.instrumentKey !== filter.instrumentKey) return false;
+      const linked = content.equipmentLinks.some(l => l.instrumentKey === e.instrumentKey);
+      if (content.identification.associationType === "equipment" && !linked) return false;
+      return compatibilityProblems(content, e).length === 0;
+    });
+    if (!equipment.length) return [];
+    return [{
+      protocolId: p.id, protocolNumber: p.protocol_number, title: p.title, revisionId: revision.id, revisionNumber: revision.revision_number, effectiveDate: revision.effective_date,
+      intervals: content.intervals.filter(i => i.activity !== "Periodic Review"),
+      equipment: equipment.map(e => ({ instrumentKey: e.instrumentKey, instrumentId: e.instrumentId, name: e.name })),
+      executions: executions.filter(e => e.protocol_id === p.id).map(e => ({ instrumentKey: String(e.instrument_key), activityKey: (e.activity_key as string | null) ?? null, executedAt: String(e.executed_at), overallResult: String(e.overall_result), rejected: executionReviewStatus((reviews.get(String(e.id)) ?? []).map(x => ({ toStatus: x.to_status }))) === "rejected" })),
+    }];
+  });
+  return computeSchedule(inputs, today());
+}
+
+/**
+ * Creates (deduplicated) alerts for overdue / due-soon interval activities and
+ * protocol periodic reviews. Runs when the dashboard or notifications are
+ * loaded (no background scheduler on serverless hosting). Never throws.
+ */
+export async function refreshDueNotifications() {
+  try {
+    const soon = new Date(Date.now() + DUE_SOON_DAYS * 86400000).toISOString().slice(0, 10);
+    const t = today();
+    const candidates: Change[] = [];
+    const schedule = await activitySchedule();
+    schedule.filter(i => i.state === "overdue" || i.state === "due-soon").forEach(i => {
+      const what = `${i.protocolNumber}: ${i.activity} for ${i.equipmentId} (${i.equipmentName}) ${i.state === "overdue" ? `OVERDUE since ${i.nextDue}` : `due ${i.nextDue}`}${i.baseline === "effective-date" ? " — never performed under this protocol" : ""}`;
+      candidates.push(notify(i.state === "overdue" ? "activity-overdue" : "activity-due-soon", "executor", null, i.protocolId, i.revisionId, what, `activity:${i.protocolId}:${i.instrumentKey}:${i.intervalKey}:${i.nextDue}:${i.state}`));
+    });
+    const released = await protocolStore().select<RevisionRow>("protocol_revisions", { where: { status: "released" }, columns: ["id", "protocol_id", "revision_number", "next_review_date"] });
+    const due = released.filter(r => r.next_review_date && r.next_review_date <= soon);
+    if (due.length) {
+      const protocols = await protocolStore().select<ProtocolRow>("protocols", { in: { column: "id", values: due.map(r => r.protocol_id) }, columns: ["id", "protocol_number"] });
+      due.forEach(r => {
+        const overdue = (r.next_review_date as string) < t;
+        const number = protocols.find(p => p.id === r.protocol_id)?.protocol_number ?? r.protocol_id;
+        candidates.push(notify("protocol-review-due", "author", null, r.protocol_id, r.id, `${number} rev ${r.revision_number}: periodic review ${overdue ? "OVERDUE since" : "due"} ${r.next_review_date}`, `review-due:${r.id}:${r.next_review_date}:${overdue ? "overdue" : "due-soon"}`));
+      });
+    }
+    if (!candidates.length) return 0;
+    const keys = candidates.map(c => String((c as { row: Row }).row.dedupe_key));
+    const existing = new Set((await protocolStore().select<Row>("protocol_notifications", { in: { column: "dedupe_key", values: keys }, columns: ["dedupe_key"] })).map(r => String(r.dedupe_key)));
+    const missing = candidates.filter(c => !existing.has(String((c as { row: Row }).row.dedupe_key)));
+    if (missing.length) await protocolStore().apply(missing);
+    return missing.length;
+  } catch (error) {
+    console.warn("[protocols] due-notification refresh skipped:", error instanceof Error ? error.message : error);
+    return 0;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1018,6 +1297,7 @@ export async function getExecution(executionId: string) {
 /* ------------------------------------------------------------------ */
 
 export async function listNotifications(actor: Actor) {
+  await refreshDueNotifications();
   const duties = await dutiesOf(actor);
   const [rows, reads] = await Promise.all([
     protocolStore().select<Row>("protocol_notifications", { order: [{ column: "created_at", desc: true }], limit: 200 }),

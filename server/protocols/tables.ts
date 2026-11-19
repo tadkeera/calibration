@@ -34,6 +34,7 @@ export const PROTOCOL_TABLES = {
   protocol_approvals: {
     id: "text", protocol_id: "text", revision_id: "text", revision_number: "int", action: "text", from_status: "text", to_status: "text",
     signature_meaning: "text", actor_user_id: "int", actor_name: "text", actor_role: "text", comment: "text", content_hash: "text", created_at: "text",
+    reauthenticated: "bool",
   },
   protocol_review_comments: {
     id: "text", protocol_id: "text", revision_id: "text", kind: "text", stage: "text", target_type: "text", target_key: "text", body: "text",
@@ -49,6 +50,15 @@ export const PROTOCOL_TABLES = {
     instrument_key: "text", equipment_id: "text", serial_number: "text", validation_record_id: "int", stage: "text", measurements: "json",
     evaluation: "json", overall_result: "text", engine_version: "text", protocol_snapshot: "json", reference_snapshot: "json", comments: "text",
     executed_by_user_id: "int", executed_by_name: "text", executed_at: "text", created_at: "text",
+    activity_key: "text", activity_name: "text", deviations: "json",
+  },
+  protocol_execution_reviews: {
+    id: "text", execution_id: "text", protocol_id: "text", action: "text", from_status: "text", to_status: "text", signature_meaning: "text",
+    reauthenticated: "bool", comment: "text", actor_user_id: "int", actor_name: "text", actor_role: "text", created_at: "text",
+  },
+  protocol_attachments: {
+    id: "text", entity_type: "text", entity_id: "text", protocol_id: "text", file_name: "text", mime_type: "text", size_bytes: "int",
+    sha256: "text", content_base64: "text", description: "text", uploaded_by_user_id: "int", uploaded_by_name: "text", created_at: "text",
   },
   protocol_notifications: {
     id: "text", kind: "text", recipient_duty: "text", recipient_user_id: "int", protocol_id: "text", revision_id: "text", message: "text",

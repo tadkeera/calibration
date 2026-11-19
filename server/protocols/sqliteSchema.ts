@@ -91,6 +91,36 @@ CREATE TABLE IF NOT EXISTS protocol_templates (
   created_by_name TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, row_version INTEGER NOT NULL DEFAULT 1
 );
 
+CREATE TABLE IF NOT EXISTS protocol_execution_reviews (
+  id TEXT PRIMARY KEY, execution_id TEXT NOT NULL REFERENCES protocol_executions(id) ON DELETE RESTRICT,
+  protocol_id TEXT NOT NULL REFERENCES protocols(id) ON DELETE RESTRICT, action TEXT NOT NULL, from_status TEXT NOT NULL, to_status TEXT NOT NULL,
+  signature_meaning TEXT NOT NULL, reauthenticated INTEGER NOT NULL DEFAULT 0, comment TEXT NOT NULL CHECK(length(trim(comment)) >= 3),
+  actor_user_id INTEGER NOT NULL REFERENCES app_users(id), actor_name TEXT, actor_role TEXT, created_at TEXT NOT NULL,
+  CHECK ((action = 'review' AND from_status = 'recorded' AND to_status = 'reviewed')
+    OR (action = 'approve' AND from_status = 'reviewed' AND to_status = 'approved')
+    OR (action = 'reject' AND from_status IN ('recorded','reviewed') AND to_status = 'rejected')),
+  UNIQUE(execution_id, from_status)
+);
+CREATE INDEX IF NOT EXISTS protocol_execution_reviews_execution_idx ON protocol_execution_reviews(execution_id, created_at);
+CREATE TRIGGER IF NOT EXISTS protocol_execution_reviews_sequence BEFORE INSERT ON protocol_execution_reviews
+BEGIN
+  SELECT RAISE(ABORT, 'protocol_execution_reviews: the execution already has a final decision')
+    WHERE EXISTS (SELECT 1 FROM protocol_execution_reviews r WHERE r.execution_id = NEW.execution_id AND r.to_status IN ('approved','rejected'));
+  SELECT RAISE(ABORT, 'protocol_execution_reviews: QA decision requires a completed technical review')
+    WHERE NEW.from_status = 'reviewed' AND NOT EXISTS (SELECT 1 FROM protocol_execution_reviews r WHERE r.execution_id = NEW.execution_id AND r.to_status = 'reviewed');
+  SELECT RAISE(ABORT, 'protocol_execution_reviews: the execution is no longer in the recorded state')
+    WHERE NEW.from_status = 'recorded' AND EXISTS (SELECT 1 FROM protocol_execution_reviews r WHERE r.execution_id = NEW.execution_id);
+  SELECT RAISE(ABORT, 'protocol_execution_reviews: segregation of duties - the executor cannot review or approve their own execution')
+    WHERE EXISTS (SELECT 1 FROM protocol_executions e WHERE e.id = NEW.execution_id AND e.executed_by_user_id = NEW.actor_user_id);
+END;
+CREATE TABLE IF NOT EXISTS protocol_attachments (
+  id TEXT PRIMARY KEY, entity_type TEXT NOT NULL CHECK(entity_type IN ('execution','reference')), entity_id TEXT NOT NULL,
+  protocol_id TEXT REFERENCES protocols(id), file_name TEXT NOT NULL, mime_type TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL CHECK(size_bytes > 0 AND size_bytes <= 3145728), sha256 TEXT NOT NULL CHECK(length(sha256) = 64),
+  content_base64 TEXT NOT NULL, description TEXT, uploaded_by_user_id INTEGER NOT NULL REFERENCES app_users(id), uploaded_by_name TEXT, created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS protocol_attachments_entity_idx ON protocol_attachments(entity_type, entity_id);
+
 CREATE TRIGGER IF NOT EXISTS protocol_revisions_guard_update BEFORE UPDATE ON protocol_revisions
 BEGIN
   SELECT RAISE(ABORT, 'protocol_revisions: protocol_id and revision_number are immutable')
@@ -120,7 +150,7 @@ END;
 `;
 
 /** Append-only / no-delete guards (generated for each table). */
-const appendOnly = ["protocol_approvals", "protocol_audit_events", "protocol_executions", "protocol_notifications", "protocol_notification_reads"];
+const appendOnly = ["protocol_approvals", "protocol_audit_events", "protocol_executions", "protocol_notifications", "protocol_notification_reads", "protocol_execution_reviews", "protocol_attachments"];
 const noDelete = ["protocols", "protocol_revisions", "protocol_references", "protocol_review_comments", "protocol_templates", "protocol_duty_assignments", ...appendOnly];
 
 export const SQLITE_PROTOCOL_GUARDS =
@@ -131,3 +161,15 @@ export const SQLITE_PROTOCOL_GUARDS =
   noDelete
     .map(t => `CREATE TRIGGER IF NOT EXISTS ${t}_no_delete BEFORE DELETE ON ${t} BEGIN SELECT RAISE(ABORT, '${t}: deletion is not permitted (historical records are preserved)'); END;`)
     .join("\n");
+
+/**
+ * Columns added after the first release of the module. SQLite has no
+ * "ADD COLUMN IF NOT EXISTS", so each is added only when missing (idempotent).
+ */
+export const SQLITE_PROTOCOL_ADDED_COLUMNS: Array<{ table: string; column: string; ddl: string }> = [
+  { table: "protocol_approvals", column: "reauthenticated", ddl: "reauthenticated INTEGER NOT NULL DEFAULT 0" },
+  { table: "protocol_executions", column: "activity_key", ddl: "activity_key TEXT" },
+  { table: "protocol_executions", column: "activity_name", ddl: "activity_name TEXT" },
+  { table: "protocol_executions", column: "deviations", ddl: "deviations TEXT NOT NULL DEFAULT '[]'" },
+];
+export const SQLITE_PROTOCOL_POST_UPGRADE = `CREATE INDEX IF NOT EXISTS protocol_executions_activity_idx ON protocol_executions(protocol_id, instrument_key, activity_key, executed_at);`;
