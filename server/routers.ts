@@ -9,6 +9,7 @@ import { instrumentsRouter } from "./routers/instruments";
 import { usersRouter } from "./routers/users";
 import { settingsRouter } from "./routers/settings";
 import { adminActivitiesRouter } from "./routers/adminActivities";
+import { protocolsRouter } from "./routers/protocols";
 import { getOfficialReportHeaderUrl } from "./officialHeader";
 import { z } from "zod";
 
@@ -60,6 +61,7 @@ export const appRouter = router({
   users: usersRouter,
   adminActivities: adminActivitiesRouter,
   settings: settingsRouter,
+  protocols: protocolsRouter,
 });
 
 export type AppRouter = typeof appRouter;

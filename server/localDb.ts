@@ -1748,6 +1748,11 @@ export async function upsertValidationSettings(input: {
     updatedAt: new Date(timestamp),
   };
 }
+/** Shared SQLite connection for additive modules (Protocol Management store). */
+export function localConnection() {
+  return database();
+}
+
 export function closeLocalDatabase() {
   singleton?.close();
   singleton = null;
