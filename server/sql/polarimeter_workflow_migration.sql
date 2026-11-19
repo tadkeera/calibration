@@ -1,11 +1,57 @@
 -- Additive Polarimeter workflow migration for existing Supabase installations.
 -- Run as database owner before deploying the updated server. No historical
 -- validation_records rows are rewritten; new integer columns default safely.
+--
+-- HOW TO APPLY (Supabase Dashboard → SQL Editor → New query → paste → Run):
+--   * Safe to run more than once (IF NOT EXISTS / CREATE OR REPLACE / DROP ... IF EXISTS).
+--   * Runs in one transaction: either everything is applied or nothing is.
+--   * Ends with NOTIFY pgrst so PostgREST reloads its schema cache immediately
+--     (fixes "Could not find the 'retest_of_record_id' column ... in the schema cache").
+--   * The final SELECT lists the verified columns; compare with
+--     GET https://<your-app>/api/health/schema afterwards.
+-- Prerequisite: server/sql/supabase_schema.sql has been applied once.
+
+BEGIN;
+
+-- Guard: retest_of_record_id must use the same type as validation_records.id.
+DO $$
+DECLARE
+  pk_type text;
+BEGIN
+  SELECT format_type(a.atttypid, a.atttypmod) INTO pk_type
+    FROM pg_attribute a
+    WHERE a.attrelid = 'public.validation_records'::regclass
+      AND a.attname = 'id' AND NOT a.attisdropped;
+  IF pk_type IS DISTINCT FROM 'bigint' THEN
+    RAISE EXCEPTION 'validation_records.id is %, expected bigint; review the migration before applying', pk_type;
+  END IF;
+END $$;
 
 ALTER TABLE public.validation_records
   ADD COLUMN IF NOT EXISTS record_version integer NOT NULL DEFAULT 1,
   ADD COLUMN IF NOT EXISTS retest_of_record_id bigint REFERENCES public.validation_records(id) ON DELETE RESTRICT,
   ADD COLUMN IF NOT EXISTS retest_reason text;
+
+-- If retest_of_record_id already existed (e.g. added manually) without its
+-- self-referencing foreign key, add it. Existing rows are validated by Postgres.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_constraint c
+      JOIN pg_attribute a
+        ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+     WHERE c.conrelid = 'public.validation_records'::regclass
+       AND c.contype = 'f'
+       AND c.confrelid = 'public.validation_records'::regclass
+       AND a.attname = 'retest_of_record_id'
+  ) THEN
+    ALTER TABLE public.validation_records
+      ADD CONSTRAINT validation_records_retest_of_record_id_fkey
+      FOREIGN KEY (retest_of_record_id)
+      REFERENCES public.validation_records(id) ON DELETE RESTRICT;
+  END IF;
+END $$;
 
 ALTER TABLE public.record_approvals
   ADD COLUMN IF NOT EXISTS reason text;
@@ -589,3 +635,18 @@ DROP TRIGGER IF EXISTS polarimeter_failure_cases_from_record ON public.validatio
 CREATE TRIGGER polarimeter_failure_cases_from_record
   AFTER INSERT OR UPDATE ON public.validation_records
   FOR EACH ROW EXECUTE FUNCTION public.create_polarimeter_failure_cases();
+
+COMMIT;
+
+-- Reload the PostgREST schema cache (supported Supabase mechanism) so the API
+-- recognises the new columns and tables without waiting or restarting.
+NOTIFY pgrst, 'reload schema';
+
+-- Verification: expect 3 rows (record_version, retest_of_record_id, retest_reason)
+-- and retest_of_record_id = bigint, is_nullable = YES.
+SELECT column_name, data_type, is_nullable, column_default
+  FROM information_schema.columns
+ WHERE table_schema = 'public'
+   AND table_name = 'validation_records'
+   AND column_name IN ('record_version', 'retest_of_record_id', 'retest_reason')
+ ORDER BY column_name;

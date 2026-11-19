@@ -5,6 +5,11 @@ import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { devices, defaultSettings } from "../client/src/lib/qc";
 import { versionPolarimeterSettings } from "../shared/polarimeter";
 import {
+  REQUIRED_SCHEMA,
+  type SchemaCheck,
+  type SchemaHealth,
+} from "./schemaRequirements";
+import {
   assertCanAcceptTechnicalReview,
   assertCanApprovePolarimeter,
   polarimeterFailureCases,
@@ -166,6 +171,11 @@ function database() {
     connection.exec(
       "ALTER TABLE validation_records ADD COLUMN retest_reason TEXT"
     );
+  // Same partial index as Supabase (validation_records_retest_parent_idx):
+  // ordinary records keep NULL and are not indexed; retests are traceable to their parent.
+  connection.exec(
+    "CREATE INDEX IF NOT EXISTS validation_records_retest_parent_idx ON validation_records(retest_of_record_id) WHERE retest_of_record_id IS NOT NULL"
+  );
   const approvalColumns = new Set(
     (
       connection.prepare("PRAGMA table_info(record_approvals)").all() as Array<{
@@ -1741,4 +1751,34 @@ export async function upsertValidationSettings(input: {
 export function closeLocalDatabase() {
   singleton?.close();
   singleton = null;
+}
+
+/** Read-only schema probe for the local SQLite store (parity with Supabase). */
+export async function checkSchemaHealth(): Promise<SchemaHealth> {
+  const connection = database();
+  const checks: SchemaCheck[] = REQUIRED_SCHEMA.map(requirement => {
+    const present = new Set(
+      (
+        connection
+          .prepare(`PRAGMA table_info(${requirement.table})`)
+          .all() as Array<{ name: string }>
+      ).map(column => column.name)
+    );
+    const missing = requirement.columns.filter(column => !present.has(column));
+    return missing.length
+      ? { table: requirement.table, ok: false, missing }
+      : { table: requirement.table, ok: true };
+  });
+  const polarimeterSettingsProvisioned = Boolean(
+    connection
+      .prepare("SELECT 1 AS present FROM validation_settings WHERE device_key = 'polarimeter' LIMIT 1")
+      .get()
+  );
+  return {
+    ok: checks.every(check => check.ok) && polarimeterSettingsProvisioned,
+    storage: "local",
+    checks,
+    polarimeterSettingsProvisioned,
+    checkedAt: new Date().toISOString(),
+  };
 }

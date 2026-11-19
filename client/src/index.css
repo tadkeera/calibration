@@ -183,6 +183,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .polarimeter-save-state{display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:7px;color:#64776c;font-size:10px;}
 .polarimeter-save-state svg{grid-row:span 2;color:#64806f;}
 .polarimeter-save-state small{grid-column:2;color:#98a39c;font-size:9px;}
+.polarimeter-save-state small.polarimeter-server-draft-error{color:#a3332b;font-weight:600;}
 .polarimeter-nav-buttons{display:flex;gap:8px;}
 .polarimeter-chart-panel{min-height:340px;}
 .polarimeter-chart-legend{display:grid;gap:5px;color:#64766d;font-size:9px;}

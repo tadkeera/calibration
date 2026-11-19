@@ -494,6 +494,9 @@ export function PolarimeterValidationForm({
   const [serverDraftStatus, setServerDraftStatus] = useState<
     "unavailable" | "loading" | "saved" | "saving" | "offline" | "conflict"
   >(readOnly ? "unavailable" : "loading");
+  // Last server-draft error, shown verbatim so persistence failures (for example
+  // an outdated database schema) are never hidden behind a generic "offline".
+  const [serverDraftError, setServerDraftError] = useState<string | null>(null);
   const [serverDraftConflict, setServerDraftConflict] = useState<{
     version: number;
     serverDraft: LocalDraft | null;
@@ -563,6 +566,7 @@ export function PolarimeterValidationForm({
     if (!serverDraftQuery.isFetched) return;
     if (serverDraftQuery.isError) {
       setServerDraftStatus("offline");
+      setServerDraftError(serverDraftQuery.error?.message ?? null);
       return;
     }
     setServerDraftReady(true);
@@ -864,6 +868,7 @@ export function PolarimeterValidationForm({
             setServerDraftVersion(saved.version);
             lastServerFingerprint.current = fingerprint;
             setServerDraftStatus("saved");
+            setServerDraftError(null);
           },
           onError: error => {
             serverSaveInFlight.current = false;
@@ -891,6 +896,7 @@ export function PolarimeterValidationForm({
               void serverDraftQuery.refetch();
             } else {
               setServerDraftStatus("offline");
+              setServerDraftError(error.message);
             }
           },
         }
@@ -1232,7 +1238,8 @@ export function PolarimeterValidationForm({
             <strong>Protocol pending verification.</strong> The supplied initial
             criteria are not confirmed against SOP {protocol.sopNumber}; this
             run can be saved as a draft, but successful formal approval is
-            blocked until verification.
+            blocked until verification. Equipment review, measurement entry,
+            calculations, step navigation and draft saving remain available.
           </span>
         </div>
       )}
@@ -1968,6 +1975,12 @@ export function PolarimeterValidationForm({
               ? "Server draft synchronization requires an authenticated editor account."
               : `Server draft: ${serverDraftStatus}. Version ${serverDraftVersion || "not yet saved"}.`}
           </small>
+          {!readOnly && serverDraftError && (
+            <small className="polarimeter-server-draft-error" role="alert">
+              Server draft not saved: {serverDraftError} Your entries are kept
+              in this browser&apos;s local recovery copy.
+            </small>
+          )}
           <small>
             Server drafts are account-scoped and version-checked; saving this
             form creates a separate validation record.

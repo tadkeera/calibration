@@ -8,6 +8,8 @@ async function provider() {
   return offlineMode() ? (localProvider ??= import("./localDb")) : supabase;
 }
 
+export const checkSchemaHealth = async () =>
+  (await provider()).checkSchemaHealth();
 export const getUserByOpenId = async (
   ...args: Parameters<typeof supabase.getUserByOpenId>
 ) => (await provider()).getUserByOpenId(...args);
