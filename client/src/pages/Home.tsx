@@ -11,6 +11,7 @@ import {
   ClipboardCheck,
   Download,
   FileStack,
+  Wrench,
   FileText,
   FlaskConical,
   History,
@@ -45,6 +46,13 @@ const ProtocolManagement = lazy(() =>
     default: m.ProtocolManagement,
   }))
 );
+const EquipmentDataPage = lazy(() =>
+  import("@/components/protocols/EquipmentDataPage").then(m => ({
+    default: m.EquipmentDataPage,
+  }))
+);
+/** Exact page title required by the user (shown in both interface languages). */
+const EQUIPMENT_PAGE_TITLE = "تعديل بيانات ومواصفات الأجهزة";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { downloadOfficialPdf } from "@/lib/officialPdf";
@@ -68,7 +76,8 @@ type Page =
   | "account"
   | "users"
   | "activity"
-  | "protocols";
+  | "protocols"
+  | "equipment";
 type Language = "ar" | "en";
 type RetestContext = { originalRecordId: number; reason: string };
 const storageKey = "yemen-qc-settings-v1";
@@ -1692,6 +1701,7 @@ export default function Home() {
         label:
           interfaceLanguage === "ar" ? "إدارة البروتوكولات" : "Protocol Management",
       },
+      { id: "equipment", icon: Wrench, label: EQUIPMENT_PAGE_TITLE },
       {
         id: "account",
         icon: KeyRound,
@@ -1721,6 +1731,8 @@ export default function Home() {
       ? interfaceLanguage === "ar"
         ? "إدارة البروتوكولات"
         : "Protocol Management"
+      : activePage === "equipment"
+      ? EQUIPMENT_PAGE_TITLE
       : activePage === "users"
       ? interfaceLanguage === "ar"
         ? "المستخدمون"
@@ -1938,6 +1950,20 @@ export default function Home() {
             >
               <ProtocolManagement
                 user={{ id: user.id, name: user.name ?? null, role: user.role }}
+              />
+            </Suspense>
+          )}
+          {activePage === "equipment" && user && (
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> {EQUIPMENT_PAGE_TITLE}…
+                </div>
+              }
+            >
+              <EquipmentDataPage
+                user={{ id: user.id, name: user.name ?? null, role: user.role }}
+                language={interfaceLanguage}
               />
             </Suspense>
           )}

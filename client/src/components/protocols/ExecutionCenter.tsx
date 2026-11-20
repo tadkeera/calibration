@@ -165,7 +165,7 @@ function ExecutionForm({ revisionId, instrumentKey, canExecute, setNav, user, du
   );
 }
 
-function ReadingInputs({ count, values, onChange }: { count: number; values: Array<number | null>; onChange: (v: Array<number | null>) => void }) {
+export function ReadingInputs({ count, values, onChange }: { count: number; values: Array<number | null>; onChange: (v: Array<number | null>) => void }) {
   return (
     <div className="pm-row">
       {Array.from({ length: count }, (_, i) => (
@@ -175,7 +175,7 @@ function ReadingInputs({ count, values, onChange }: { count: number; values: Arr
   );
 }
 
-function TestInput({ test: t, value: v, onChange, preview }: { test: ProtocolTest; value: TestMeasurement; onChange: (fn: (t: TestMeasurement) => TestMeasurement) => void; preview?: string }) {
+export function TestInput({ test: t, value: v, onChange, preview }: { test: ProtocolTest; value: TestMeasurement; onChange: (fn: (t: TestMeasurement) => TestMeasurement) => void; preview?: string }) {
   const n = expected(t);
   const pending = t.criteria.filter(c => c.verificationStatus !== "verified").length;
   return (

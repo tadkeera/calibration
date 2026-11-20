@@ -72,10 +72,44 @@ export const PROTOCOL_TABLES = {
     id: "text", name: "text", template_category: "text", protocol_type: "text", description: "text", structure: "json", is_active: "bool",
     source_revision_id: "text", created_by_user_id: "int", created_by_name: "text", created_at: "text", updated_at: "text", row_version: "int",
   },
+  /* -------- v3: equipment specifications, field-level equipment audit, calibration runs -------- */
+  /** Typed, unit-aware specification groups per equipment item (identity stays in instrument_profiles). */
+  protocol_equipment_specs: {
+    id: "text", instrument_key: "text", equipment_type: "text", status: "text", specs: "json", retired_reason: "text", retired_at: "text",
+    created_by_user_id: "int", created_by_name: "text", created_at: "text", updated_by_user_id: "int", updated_by_name: "text", updated_at: "text",
+    row_version: "int",
+  },
+  /** Immutable field-level equipment change log (field, old, new, user, time, reason, reference). */
+  protocol_equipment_changes: {
+    id: "text", change_set_id: "text", instrument_key: "text", field_group: "text", field: "text", label: "text", previous_value: "json",
+    new_value: "json", unit: "text", critical: "bool", reason: "text", reference: "text", actor_user_id: "int", actor_name: "text", actor_role: "text",
+    created_at: "text",
+  },
+  /** Calibration runs (dynamic per-protocol workflow). The equipment snapshot is frozen at run creation. */
+  protocol_runs: {
+    id: "text", run_number: "text", protocol_id: "text", revision_id: "text", protocol_number: "text", revision_number: "int", revision_status: "text",
+    content_hash: "text", protocol_snapshot: "json", instrument_key: "text", equipment_snapshot: "json", equipment_version: "text", measurements: "json", evaluation: "json",
+    overall_result: "text", current_step: "text", status: "text", execution_id: "text", abandon_reason: "text", created_by_user_id: "int",
+    created_by_name: "text", created_at: "text", updated_by_user_id: "int", updated_by_name: "text", updated_at: "text", row_version: "int",
+  },
+  /** Append-only history of every saved run version (historical versions are never altered). */
+  protocol_run_snapshots: {
+    id: "text", run_id: "text", row_version: "int", action: "text", measurements: "json", evaluation: "json", overall_result: "text",
+    equipment_version: "text", reason: "text", actor_user_id: "int", actor_name: "text", created_at: "text",
+  },
 } as const satisfies Record<string, Record<string, ColumnType>>;
 
 export type ProtocolTable = keyof typeof PROTOCOL_TABLES;
 export const PROTOCOL_TABLE_NAMES = Object.keys(PROTOCOL_TABLES) as ProtocolTable[];
+/**
+ * v3 tables (equipment specifications page + calibration-run workflow). They are
+ * reported separately so that a database that has not yet re-run the migration
+ * keeps the existing Protocol Management features working; only the new
+ * features report "migration required".
+ */
+export const PROTOCOL_WORKFLOW_TABLE_NAMES: ProtocolTable[] = ["protocol_equipment_specs", "protocol_equipment_changes", "protocol_runs", "protocol_run_snapshots"];
+export const PROTOCOL_CORE_TABLE_NAMES = PROTOCOL_TABLE_NAMES.filter(t => !PROTOCOL_WORKFLOW_TABLE_NAMES.includes(t));
+export type SchemaStatus = { ok: boolean; missing: string[]; workflowOk: boolean; workflowMissing: string[] };
 
 export type Row = Record<string, unknown>;
 export type Filter = Record<string, string | number | boolean | null>;
@@ -98,7 +132,7 @@ export interface ProtocolStore {
   select<T extends Row = Row>(table: ProtocolTable, options?: SelectOptions): Promise<T[]>;
   /** Applies every change atomically (single transaction). Throws ProtocolConflictError when a guarded update matches no row. */
   apply(changes: Change[]): Promise<void>;
-  schemaStatus(): Promise<{ ok: boolean; missing: string[] }>;
+  schemaStatus(): Promise<SchemaStatus>;
 }
 
 export class ProtocolConflictError extends Error {

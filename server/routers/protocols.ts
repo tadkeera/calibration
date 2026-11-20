@@ -12,6 +12,7 @@ import { PROTOCOL_DUTY_IDS, WORKFLOW_ACTIONS } from "../../shared/protocols/work
 import { EXECUTION_REVIEW_ACTIONS, EXECUTION_REVIEW_STATUSES } from "../../shared/protocols/executionReview";
 import { ATTACHMENT_ENTITY_TYPES, MAX_ATTACHMENT_BYTES } from "../../shared/protocols/attachments";
 import * as service from "../protocols/service";
+import * as workflow from "../protocols/workflowService";
 import { ProtocolConflictError } from "../protocols/tables";
 
 type Ctx = { user: { id: number; name: string | null; role: "admin" | "user" | "viewer"; email?: string | null } };
@@ -49,6 +50,15 @@ const identificationSchema = z.object({
   department: z.string().max(200).optional(),
   relatedForm: z.string().max(64).optional(),
 });
+
+const instrumentKey = z.string().min(1).max(64);
+const runId = z.string().min(1).max(64);
+const identityInput = z.object({
+  instrumentId: z.string().max(255), manufacturer: z.string().max(255), model: z.string().max(255), serialNumber: z.string().max(255),
+  nameEn: z.string().max(255), nameAr: z.string().max(255), sopNumber: z.string().max(255), formNumber: z.string().max(255),
+});
+const specsInput = z.record(z.string().max(64), z.object({ value: z.union([z.number(), z.string().max(500)]).nullable(), unit: z.string().max(40), source: z.string().max(500) })).refine(v => Object.keys(v).length <= 80, "Too many specifications");
+const deviationsInput = z.array(z.object({ description: z.string().max(2000), impact: z.string().max(2000), immediateAction: z.string().max(2000), reference: z.string().max(200) })).max(20).optional();
 
 export const protocolsRouter = router({
   me: protectedProcedure.query(({ ctx }) => run(() => service.getMe(actorOf(ctx)))),
@@ -171,4 +181,33 @@ export const protocolsRouter = router({
     .mutation(({ ctx, input }) => run(() => service.saveTemplateFromRevision(actorOf(ctx), input))),
   logPdf: protectedProcedure.input(z.object({ revisionId, documentStatus: z.string().max(60) })).mutation(({ ctx, input }) => run(() => service.logPdfGenerated(actorOf(ctx), input))),
   configureAdp220: protectedProcedure.mutation(({ ctx }) => run(() => service.configureAdp220Draft(actorOf(ctx)))),
+
+  /* ---- v3: 8-protocol package, equipment data & specifications, calibration runs ---- */
+  importPackage: protectedProcedure.mutation(({ ctx }) => run(() => workflow.importCalibrationPackage(actorOf(ctx)))),
+  equipmentData: protectedProcedure.query(() => run(() => workflow.listEquipmentData())),
+  equipmentDetail: protectedProcedure.input(z.object({ instrumentKey })).query(({ input }) => run(() => workflow.getEquipmentData(input.instrumentKey))),
+  updateEquipment: protectedProcedure
+    .input(z.object({ instrumentKey, expectedSpecsRowVersion: z.number().int().min(0), identity: identityInput, specs: specsInput, equipmentType: z.string().max(64).optional(), reason: z.string().max(1000), reference: z.string().max(300) }))
+    .mutation(({ ctx, input }) => run(() => workflow.updateEquipmentData(actorOf(ctx), input))),
+  createEquipment: protectedProcedure
+    .input(z.object({ instrumentKey, equipmentType: z.string().min(2).max(64), identity: identityInput, specs: specsInput, reason: z.string().min(3).max(1000), reference: z.string().max(300) }))
+    .mutation(({ ctx, input }) => run(() => workflow.createEquipmentData(actorOf(ctx), input))),
+  retireEquipment: protectedProcedure
+    .input(z.object({ instrumentKey, expectedSpecsRowVersion: z.number().int().min(0), reason: z.string().min(3).max(1000) }))
+    .mutation(({ ctx, input }) => run(() => workflow.retireEquipmentData(actorOf(ctx), input))),
+  runCatalog: protectedProcedure.query(() => run(() => workflow.runCatalog())),
+  runs: protectedProcedure
+    .input(z.object({ protocolId: z.string().max(64).optional(), instrumentKey: z.string().max(64).optional(), status: z.enum(["draft", "recorded", "abandoned"]).optional() }).optional())
+    .query(({ input }) => run(() => workflow.listRuns(input ?? {}))),
+  run: protectedProcedure.input(z.object({ runId })).query(({ ctx, input }) => run(() => workflow.getRun(actorOf(ctx), input.runId))),
+  runVersion: protectedProcedure.input(z.object({ runId, rowVersion: z.number().int().min(1) })).query(({ input }) => run(() => workflow.runVersion(input.runId, input.rowVersion))),
+  createRun: protectedProcedure.input(z.object({ protocolId: z.string().min(1).max(64), instrumentKey })).mutation(({ ctx, input }) => run(() => workflow.createRun(actorOf(ctx), input))),
+  saveRun: protectedProcedure
+    .input(z.object({ runId, expectedRowVersion: z.number().int().min(1), measurements: measurementsSchema, currentStep: z.string().max(80).nullable().optional(), reason: z.string().max(1000).optional() }))
+    .mutation(({ ctx, input }) => run(() => workflow.saveRun(actorOf(ctx), input))),
+  recordRun: protectedProcedure
+    .input(z.object({ runId, expectedRowVersion: z.number().int().min(1), comments: z.string().max(4000).optional(), stage: z.string().max(60).optional(), deviations: deviationsInput }))
+    .mutation(({ ctx, input }) => run(() => workflow.recordRun(actorOf(ctx), input))),
+  abandonRun: protectedProcedure.input(z.object({ runId, expectedRowVersion: z.number().int().min(1), reason: z.string().min(3).max(1000) })).mutation(({ ctx, input }) => run(() => workflow.abandonRun(actorOf(ctx), input))),
+  logRunPdf: protectedProcedure.input(z.object({ runId, documentStatus: z.string().max(60), documentId: z.string().max(120) })).mutation(({ ctx, input }) => run(() => workflow.logRunPdf(actorOf(ctx), input))),
 });
