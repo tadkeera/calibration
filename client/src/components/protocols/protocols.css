@@ -96,3 +96,29 @@
 .pm-signature input[type="password"] { max-width: 320px; padding: 7px 9px; border: 1px solid #CDBF9E; border-radius: 6px; font: inherit; background: #fff; }
 .pm-timeline-item { padding-bottom: 6px; border-bottom: 1px dashed #E3E8E3; }
 .pm-table tr.is-click.is-active td { background: #EEF4EF; }
+
+/* ---- dynamic calibration-run stepper (steps generated per protocol) ---- */
+.pm-stepper { display: flex; flex-wrap: wrap; gap: 6px; }
+.pm-step { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #D6E0D7; background: #fff; color: #315348; font-size: 12px; font-weight: 700; padding: 5px 9px 5px 5px; border-radius: 999px; cursor: pointer; max-width: 240px; }
+.pm-step:hover { border-color: #0C5A4C; }
+.pm-step.is-test { background: #FAFCF7; }
+.pm-step-num { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; border-radius: 999px; background: #E8EDE4; font-size: 11px; }
+.pm-step-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm-step.is-ok .pm-step-num { background: #DDEEE1; color: #237442; }
+.pm-step.is-bad .pm-step-num { background: #F6E1DE; color: #A33C30; }
+.pm-step.is-warn .pm-step-num { background: #FBEBD3; color: #8A5A12; }
+.pm-step.is-info .pm-step-num { background: #E1ECF4; color: #2B5C80; }
+.pm-step.is-active { background: #0C5A4C; color: #fff; border-color: #0C5A4C; }
+.pm-step.is-active .pm-step-num { background: rgba(255,255,255,.22); color: #fff; }
+.pm-conflict { border-color: #E6C3BE; }
+.pm-spec-changed { background: #FFF6E6; }
+
+/* ---- «تعديل بيانات ومواصفات الأجهزة» ---- */
+.pm-equipment-layout { display: grid; grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); gap: 14px; align-items: start; }
+@media (max-width: 900px) { .pm-equipment-layout { grid-template-columns: 1fr; } }
+.pm-equipment-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 70vh; overflow-y: auto; }
+.pm-equipment-list button { width: 100%; display: flex; gap: 8px; align-items: flex-start; text-align: start; border: 1px solid transparent; background: transparent; padding: 7px 8px; border-radius: 10px 4px 10px 4px; cursor: pointer; font-size: 13px; color: #233F37; }
+.pm-equipment-list button:hover { background: #F2F6EF; }
+.pm-equipment-list button.is-active { background: #E4EFE7; border-color: #BCD3C4; }
+.pm-equipment-dot { width: 10px; height: 10px; border-radius: 99px; margin-top: 4px; flex: none; }
+.pm-spec-source { font-size: 11px !important; padding: 3px 6px !important; color: #5E6E66; }

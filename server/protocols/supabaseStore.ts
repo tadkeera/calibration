@@ -9,6 +9,7 @@ import { SupabaseRequestError, supabaseRestPath, supabaseRestRequest } from "../
 import {
   PROTOCOL_TABLES,
   PROTOCOL_TABLE_NAMES,
+  PROTOCOL_WORKFLOW_TABLE_NAMES,
   ProtocolConflictError,
   assertColumns,
   completeRow,
@@ -84,11 +85,12 @@ export const supabaseProtocolStore: ProtocolStore = {
   },
   async schemaStatus() {
     const missing: string[] = [];
+    const workflowMissing: string[] = [];
     for (const table of PROTOCOL_TABLE_NAMES) {
       try {
         await supabaseRestRequest(supabaseRestPath(table, `select=${Object.keys(PROTOCOL_TABLES[table]).join(",")}&limit=0`));
       } catch (error) {
-        if (error instanceof SupabaseRequestError && error.schemaMismatch) missing.push(table);
+        if (error instanceof SupabaseRequestError && error.schemaMismatch) (PROTOCOL_WORKFLOW_TABLE_NAMES.includes(table) ? workflowMissing : missing).push(table);
         else throw error;
       }
     }
@@ -99,6 +101,6 @@ export const supabaseProtocolStore: ProtocolStore = {
       if (error instanceof SupabaseRequestError && error.schemaMismatch) missing.push("rpc/protocol_apply_changes");
       else throw error;
     }
-    return { ok: missing.length === 0, missing };
+    return { ok: missing.length === 0, missing, workflowOk: workflowMissing.length === 0, workflowMissing };
   },
 };

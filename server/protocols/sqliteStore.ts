@@ -4,6 +4,7 @@ import { SQLITE_PROTOCOL_ADDED_COLUMNS, SQLITE_PROTOCOL_DDL, SQLITE_PROTOCOL_GUA
 import {
   PROTOCOL_TABLES,
   PROTOCOL_TABLE_NAMES,
+  PROTOCOL_WORKFLOW_TABLE_NAMES,
   ProtocolConflictError,
   assertColumns,
   completeRow,
@@ -120,10 +121,12 @@ export const sqliteProtocolStore: ProtocolStore = {
   async schemaStatus() {
     const conn = await connection();
     const missing: string[] = [];
+    const workflowMissing: string[] = [];
     PROTOCOL_TABLE_NAMES.forEach(table => {
       const present = new Set((conn.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(c => c.name));
-      Object.keys(PROTOCOL_TABLES[table]).forEach(c => !present.has(c) && missing.push(`${table}.${c}`));
+      const target = PROTOCOL_WORKFLOW_TABLE_NAMES.includes(table) ? workflowMissing : missing;
+      Object.keys(PROTOCOL_TABLES[table]).forEach(c => !present.has(c) && target.push(`${table}.${c}`));
     });
-    return { ok: missing.length === 0, missing };
+    return { ok: missing.length === 0, missing, workflowOk: workflowMissing.length === 0, workflowMissing };
   },
 };

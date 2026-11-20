@@ -120,6 +120,41 @@ CREATE TABLE IF NOT EXISTS protocol_attachments (
   content_base64 TEXT NOT NULL, description TEXT, uploaded_by_user_id INTEGER NOT NULL REFERENCES app_users(id), uploaded_by_name TEXT, created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS protocol_attachments_entity_idx ON protocol_attachments(entity_type, entity_id);
+CREATE TABLE IF NOT EXISTS protocol_equipment_specs (
+  id TEXT PRIMARY KEY, instrument_key TEXT NOT NULL UNIQUE, equipment_type TEXT, status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','retired')),
+  specs TEXT NOT NULL DEFAULT '{}', retired_reason TEXT, retired_at TEXT, created_by_user_id INTEGER NOT NULL REFERENCES app_users(id), created_by_name TEXT,
+  created_at TEXT NOT NULL, updated_by_user_id INTEGER REFERENCES app_users(id), updated_by_name TEXT, updated_at TEXT NOT NULL, row_version INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS protocol_equipment_changes (
+  id TEXT PRIMARY KEY, change_set_id TEXT NOT NULL, instrument_key TEXT NOT NULL, field_group TEXT NOT NULL, field TEXT NOT NULL, label TEXT,
+  previous_value TEXT, new_value TEXT, unit TEXT, critical INTEGER NOT NULL DEFAULT 0, reason TEXT, reference TEXT,
+  actor_user_id INTEGER NOT NULL REFERENCES app_users(id), actor_name TEXT, actor_role TEXT, created_at TEXT NOT NULL,
+  CHECK(critical = 0 OR length(trim(coalesce(reason, ''))) >= 3)
+);
+CREATE INDEX IF NOT EXISTS protocol_equipment_changes_key_idx ON protocol_equipment_changes(instrument_key, created_at);
+CREATE TABLE IF NOT EXISTS protocol_runs (
+  id TEXT PRIMARY KEY, run_number TEXT NOT NULL UNIQUE, protocol_id TEXT NOT NULL REFERENCES protocols(id), revision_id TEXT NOT NULL REFERENCES protocol_revisions(id),
+  protocol_number TEXT NOT NULL, revision_number INTEGER NOT NULL, revision_status TEXT NOT NULL, content_hash TEXT NOT NULL, protocol_snapshot TEXT NOT NULL, instrument_key TEXT NOT NULL,
+  equipment_snapshot TEXT NOT NULL, equipment_version TEXT NOT NULL, measurements TEXT NOT NULL DEFAULT '{}', evaluation TEXT, overall_result TEXT,
+  current_step TEXT, status TEXT NOT NULL CHECK(status IN ('draft','recorded','abandoned')), execution_id TEXT REFERENCES protocol_executions(id), abandon_reason TEXT,
+  created_by_user_id INTEGER NOT NULL REFERENCES app_users(id), created_by_name TEXT, created_at TEXT NOT NULL,
+  updated_by_user_id INTEGER REFERENCES app_users(id), updated_by_name TEXT, updated_at TEXT NOT NULL, row_version INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS protocol_runs_protocol_idx ON protocol_runs(protocol_id, instrument_key, status);
+CREATE TABLE IF NOT EXISTS protocol_run_snapshots (
+  id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES protocol_runs(id), row_version INTEGER NOT NULL, action TEXT NOT NULL, measurements TEXT NOT NULL,
+  evaluation TEXT, overall_result TEXT, equipment_version TEXT, reason TEXT, actor_user_id INTEGER NOT NULL REFERENCES app_users(id), actor_name TEXT,
+  created_at TEXT NOT NULL, UNIQUE(run_id, row_version)
+);
+CREATE TRIGGER IF NOT EXISTS protocol_runs_guard_update BEFORE UPDATE ON protocol_runs
+BEGIN
+  SELECT RAISE(ABORT, 'protocol_runs: recorded / abandoned runs are immutable')
+    WHERE OLD.status <> 'draft';
+  SELECT RAISE(ABORT, 'protocol_runs: protocol, revision, equipment snapshot and creator are immutable')
+    WHERE NEW.protocol_id IS NOT OLD.protocol_id OR NEW.revision_id IS NOT OLD.revision_id OR NEW.equipment_snapshot IS NOT OLD.equipment_snapshot
+      OR NEW.equipment_version IS NOT OLD.equipment_version OR NEW.content_hash IS NOT OLD.content_hash OR NEW.protocol_snapshot IS NOT OLD.protocol_snapshot OR NEW.created_by_user_id IS NOT OLD.created_by_user_id
+      OR NEW.instrument_key IS NOT OLD.instrument_key OR NEW.run_number IS NOT OLD.run_number;
+END;
 
 CREATE TRIGGER IF NOT EXISTS protocol_revisions_guard_update BEFORE UPDATE ON protocol_revisions
 BEGIN
@@ -150,8 +185,8 @@ END;
 `;
 
 /** Append-only / no-delete guards (generated for each table). */
-const appendOnly = ["protocol_approvals", "protocol_audit_events", "protocol_executions", "protocol_notifications", "protocol_notification_reads", "protocol_execution_reviews", "protocol_attachments"];
-const noDelete = ["protocols", "protocol_revisions", "protocol_references", "protocol_review_comments", "protocol_templates", "protocol_duty_assignments", ...appendOnly];
+const appendOnly = ["protocol_approvals", "protocol_audit_events", "protocol_executions", "protocol_notifications", "protocol_notification_reads", "protocol_execution_reviews", "protocol_attachments", "protocol_equipment_changes", "protocol_run_snapshots"];
+const noDelete = ["protocols", "protocol_revisions", "protocol_references", "protocol_review_comments", "protocol_templates", "protocol_duty_assignments", "protocol_equipment_specs", "protocol_runs", ...appendOnly];
 
 export const SQLITE_PROTOCOL_GUARDS =
   appendOnly

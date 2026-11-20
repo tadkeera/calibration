@@ -50,10 +50,10 @@ export function createApp(): Express {
       // Protocol Management is reported separately so the core validation
       // workflow status is not masked; apply protocol_management_migration.sql
       // when protocolManagement.ok is false.
-      let protocolManagement: { ok: boolean; missing: string[]; migration?: string } | { ok: false; error: string };
+      let protocolManagement: { ok: boolean; missing: string[]; workflowOk?: boolean; workflowMissing?: string[]; migration?: string } | { ok: false; error: string };
       try {
         const status = await moduleStatus();
-        protocolManagement = status.ok ? status : { ...status, migration: "server/sql/protocol_management_migration.sql" };
+        protocolManagement = status.ok && status.workflowOk ? status : { ...status, migration: "server/sql/protocol_management_migration.sql" };
       } catch {
         protocolManagement = { ok: false, error: "Protocol Management schema could not be checked" };
       }

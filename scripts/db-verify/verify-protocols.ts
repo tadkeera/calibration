@@ -20,8 +20,9 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as svc from "../../server/protocols/service";
+import * as wf from "../../server/protocols/workflowService";
 import { toRpcPayload } from "../../server/protocols/supabaseStore";
-import { PROTOCOL_TABLES, ProtocolConflictError, assertColumns, type ProtocolStore, type ProtocolTable, type Row, type SelectOptions } from "../../server/protocols/tables";
+import { PROTOCOL_TABLES, PROTOCOL_WORKFLOW_TABLE_NAMES, ProtocolConflictError, assertColumns, type ProtocolStore, type ProtocolTable, type Row, type SelectOptions } from "../../server/protocols/tables";
 
 delete process.env.QC_STORAGE_MODE;
 delete process.env.SUPABASE_URL; // equipment registry falls back to the built-in device list
@@ -102,8 +103,12 @@ const pgStore: ProtocolStore = {
     }
   },
   async schemaStatus() {
-    const res = await q(`SELECT count(*)::int n FROM information_schema.tables WHERE table_schema='public' AND table_name = ANY($1)`, [Object.keys(PROTOCOL_TABLES)]);
-    return { ok: res.rows[0].n === Object.keys(PROTOCOL_TABLES).length, missing: [] };
+    const res = await q(`SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name = ANY($1)`, [Object.keys(PROTOCOL_TABLES)]);
+    const present = new Set(res.rows.map(r => r.table_name as string));
+    const absent = Object.keys(PROTOCOL_TABLES).filter(t => !present.has(t));
+    const workflowMissing = absent.filter(t => PROTOCOL_WORKFLOW_TABLE_NAMES.includes(t as ProtocolTable));
+    const missing = absent.filter(t => !workflowMissing.includes(t));
+    return { ok: missing.length === 0, missing, workflowOk: workflowMissing.length === 0, workflowMissing };
   },
 };
 
@@ -132,7 +137,7 @@ try {
   await q(migration);
   ok("migration run #2 succeeded (idempotent)", true);
   const tables = await q(`select count(*)::int n from information_schema.tables where table_schema='public' and table_name like 'protocol%'`);
-  ok("13 protocol tables exist", tables.rows[0].n === 13, String(tables.rows[0].n));
+  ok("17 protocol tables exist (13 core + 4 v3)", tables.rows[0].n === 17, String(tables.rows[0].n));
   for (const [table, cols] of Object.entries(PROTOCOL_TABLES)) {
     const res = await q(`select column_name from information_schema.columns where table_schema='public' and table_name=$1`, [table]);
     const have = new Set(res.rows.map(r => r.column_name));
@@ -140,7 +145,7 @@ try {
     ok(`${table}: every whitelisted column exists`, missing.length === 0, missing.join(","));
   }
   const rls = await q(`select count(*)::int n from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname like 'protocol%' and c.relkind='r' and c.relrowsecurity`);
-  ok("RLS enabled on all protocol tables", rls.rows[0].n === 13);
+  ok("RLS enabled on all protocol tables", rls.rows[0].n === 17, String(rls.rows[0].n));
   const anonPriv = await q(`select count(*)::int n from information_schema.role_table_grants where grantee in ('anon','authenticated') and table_name like 'protocol%'`);
   ok("anon/authenticated have no table privileges", anonPriv.rows[0].n === 0);
   const svcWrite = await q(`select count(*)::int n from information_schema.role_table_grants where grantee='service_role' and table_name like 'protocol%' and privilege_type in ('INSERT','UPDATE','DELETE')`);
@@ -270,10 +275,53 @@ try {
   ok("PG: execution keeps original measurements", isDeepStrictEqual(storedExec.measurements, { acc: { readings: [10.01, 10, 10.02], reference: 10 } }));
   ok("PG: execution keeps rev-1 protocol snapshot + hash", storedExec.protocolSnapshot.sections[0].tests.length === 1 && storedExec.protocolSnapshot.narrative.scope === "ADP220" && storedExec.contentHash === released.revision.contentHash);
 
+  // ---------------- v3: 8-protocol package, equipment data, calibration runs (real PostgreSQL) ----------------
+  ok("PG: workflow schema provisioned", (await svc.moduleStatus()).workflowOk === true);
+  // The equipment registry (instrument_profiles) belongs to the core app database (Supabase in production);
+  // here it is a throw-away local SQLite file. All protocol / v3 tables remain in real PostgreSQL.
+  process.env.QC_STORAGE_MODE = "local";
+  process.env.QC_LOCAL_DB_PATH = path.join(os.tmpdir(), `pg-verify-core-${process.pid}.sqlite`);
+  const pkg = await wf.importCalibrationPackage(users.author);
+  ok("PG: 8 protocols imported as drafts", pkg.created === 8 && pkg.failed === 0, JSON.stringify(pkg.lines.map(l => [l.protocolNumber, l.status])));
+  ok("PG: package import idempotent", (await wf.importCalibrationPackage(users.author)).skipped === 8);
+  const pol = (await wf.listEquipmentData()).find(e => e.instrumentKey === "polarimeter")!;
+  await rejects("PG: critical equipment change requires a reason", () => wf.updateEquipmentData(users.author, { instrumentKey: "polarimeter", expectedSpecsRowVersion: pol.specsRowVersion, identity: pol.identity, specs: { ...pol.specs, resolution: { value: 0.001, unit: "°", source: "Manual" } }, reason: "", reference: "" }), /reason/);
+  const upd = await wf.updateEquipmentData(users.author, { instrumentKey: "polarimeter", expectedSpecsRowVersion: pol.specsRowVersion, identity: pol.identity, specs: { ...pol.specs, resolution: { value: 0.001, unit: "°", source: "Manual" } }, reason: "Manual specification entered", reference: "MAN-1" });
+  ok("PG: equipment change logged field-by-field", upd.changed === 1);
+  await rejects("PG: stale equipment edit rejected (both versions kept)", () => wf.updateEquipmentData(users.author, { instrumentKey: "polarimeter", expectedSpecsRowVersion: pol.specsRowVersion, identity: pol.identity, specs: {}, reason: "stale", reference: "" }), /changed by another user/);
+  await rejects("DB: equipment change log append-only", () => q(`delete from protocol_equipment_changes`), /not permitted/);
+  const polProtocol = (await wf.runCatalog()).find(c => c.protocolNumber === "CAL-QC-POL-001")!;
+  ok("PG: run catalog has dynamic step count (POL = 12)", polProtocol.stepCount === 12, String(polProtocol.stepCount));
+  const runA = await wf.createRun(users.author, { protocolId: polProtocol.protocolId, instrumentKey: "polarimeter" });
+  const saved = await wf.saveRun(users.author, { runId: runA.runId, expectedRowVersion: 1, measurements: { T06: { notApplicable: true, naJustification: "Not used quantitatively" } } });
+  ok("PG: run draft saved as version 2", saved.rowVersion === 2);
+  await rejects("PG: concurrent run save → DRAFT_CONFLICT", () => wf.saveRun(users.author, { runId: runA.runId, expectedRowVersion: 1, measurements: {} }), /DRAFT_CONFLICT/);
+  const runV1 = await wf.runVersion(runA.runId, 1);
+  ok("PG: earlier run version preserved", isDeepStrictEqual(runV1.measurements, {}));
+  await rejects("PG: recording blocked while the protocol is not released", () => wf.recordRun(users.author, { runId: runA.runId, expectedRowVersion: 2 }), /released|not released|DRAFT/i);
+  await rejects("DB: runs cannot be deleted", () => q(`delete from protocol_runs`), /not permitted/);
+  await rejects("DB: run snapshots append-only", () => q(`update protocol_run_snapshots set reason = 'x'`), /not permitted/);
+  const pol2 = (await wf.listEquipmentData()).find(e => e.instrumentKey === "polarimeter")!;
+  await wf.updateEquipmentData(users.author, { instrumentKey: "polarimeter", expectedSpecsRowVersion: pol2.specsRowVersion, identity: pol2.identity, specs: { ...pol2.specs, location: { value: "QC Lab room 2", unit: "", source: "" } }, reason: "", reference: "" });
+  const afterChange = await wf.getRun(users.author, runA.runId);
+  ok("PG: open run keeps its equipment snapshot and flags newer data", afterChange.newerEquipmentData === true && afterChange.run.equipmentSnapshot.specs.location === undefined && afterChange.run.equipmentSnapshot.specs.resolution?.value === 0.001);
+
   const historyAfter = (await q(`select id, result_data::text, created_at from validation_records order by id`)).rows;
   ok("existing validation records unchanged", JSON.stringify(historyBefore) === JSON.stringify(historyAfter));
   const audit = await q(`select count(*)::int n from protocol_audit_events`);
   ok("audit trail populated", audit.rows[0].n > 10, String(audit.rows[0].n));
+
+  // v3 rollback: drops only the 4 v3 tables (+ guards); v2 data survive; re-applying the migration restores v3.
+  const coreBefore = (await q(`select count(*)::int n from protocols`)).rows[0].n;
+  await q(read("protocol_management_v3_rollback.sql"));
+  const afterRollback = (await q(`select count(*)::int n from information_schema.tables where table_schema='public' and table_name like 'protocol%'`)).rows[0].n;
+  ok("PG: v3 rollback leaves the 13 core tables", afterRollback === 13, String(afterRollback));
+  ok("PG: v3 rollback keeps v2 data", (await q(`select count(*)::int n from protocols`)).rows[0].n === coreBefore);
+  svc.setProtocolStoreForTests(pgStore);
+  ok("PG: after rollback core module ok, workflow reported missing", await svc.moduleStatus().then(st => st.ok && !st.workflowOk));
+  await q(read("protocol_management_migration.sql"));
+  const reapplied = (await q(`select count(*)::int n from information_schema.tables where table_schema='public' and table_name like 'protocol%'`)).rows[0].n;
+  ok("PG: migration re-applied after rollback", reapplied === 17, String(reapplied));
 } catch (e) {
   console.error("ERROR", e);
   failures++;

@@ -5,7 +5,7 @@
  * the backend (server/protocols/service.ts); the UI only reflects them.
  */
 import { useMemo, useState } from "react";
-import { Bell, BookMarked, ClipboardList, FileStack, FilePlus2, FolderSearch, Gauge, PlayCircle, Settings2, ShieldCheck } from "lucide-react";
+import { Bell, BookMarked, ListChecks, ClipboardList, FileStack, FilePlus2, FolderSearch, Gauge, PlayCircle, Settings2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { PROTOCOL_TYPES, STATUS_LABELS, type RevisionStatus } from "@shared/protocols/model";
@@ -15,6 +15,7 @@ import { ProtocolBuilder } from "./ProtocolBuilder";
 import { ReferenceLibrary } from "./ReferenceLibrary";
 import { ReviewCenter } from "./ReviewCenter";
 import { ExecutionCenter } from "./ExecutionCenter";
+import { RunWorkflow } from "./RunWorkflow";
 import { SchedulePanel } from "./ExecutionReview";
 import { ModuleSettings } from "./ModuleSettings";
 import "./protocols.css";
@@ -25,6 +26,7 @@ const TABS: Array<{ view: Nav["view"]; label: string; icon: typeof Gauge }> = [
   { view: "create", label: "Create Protocol", icon: FilePlus2 },
   { view: "review", label: "Review & Approval", icon: ShieldCheck },
   { view: "references", label: "Reference Library", icon: BookMarked },
+  { view: "runs", label: "Calibration Runs", icon: ListChecks },
   { view: "executions", label: "Execution History", icon: PlayCircle },
   { view: "documents", label: "Documents", icon: FileStack },
   { view: "settings", label: "Settings", icon: Settings2 },
@@ -76,6 +78,7 @@ export function ProtocolManagement({ user }: { user: PmUser }) {
       {nav.view === "references" && <ReferenceLibrary duties={me.data?.duties ?? []} />}
       {nav.view === "review" && <ReviewCenter user={user} setNav={setNav} />}
       {nav.view === "executions" && <ExecutionCenter user={user} duties={me.data?.duties ?? []} initialRevisionId={nav.revisionId} setNav={setNav} />}
+      {nav.view === "runs" && (status.data?.workflowOk === false ? <ErrorBox><strong>Calibration runs need the v3 tables.</strong> Missing: {status.data.workflowMissing.join(", ")}. Re-run <code>server/sql/protocol_management_migration.sql</code> in the Supabase SQL Editor.</ErrorBox> : <RunWorkflow user={user} duties={me.data?.duties ?? []} initialRunId={nav.runId} setNav={setNav} />)}
       {nav.view === "documents" && <Documents setNav={setNav} />}
       {nav.view === "settings" && <ModuleSettings user={user} duties={me.data?.duties ?? []} storage={me.data?.storage ?? ""} />}
     </div>
@@ -348,6 +351,7 @@ function CreateProtocol({ setNav, canAuthor }: { setNav: (n: Nav) => void; canAu
         <p className="pm-muted" style={{ marginTop: 0 }}>Creates the polarimeter protocol as configuration data inside this generic module (DRAFT). It links the existing equipment record QC-I-029 / S/N PE99003 (no duplicate is created), seeds its references as pending verification, marks every criterion {"\u201C"}PENDING TECHNICAL VERIFICATION{"\u201D"}, and documents the ±0.02° (manual) vs ±0.01° (USP {"<781>"}) accuracy gap. Running it again only opens the existing draft.</p>
         <button type="button" className="pm-btn" disabled={adp.isPending} onClick={async () => { try { const r = await adp.mutateAsync(); await utils.protocols.invalidate(); toast.success(r.created ? "POL-QC-032D created as DRAFT" : "POL-QC-032D already exists — opening it"); setNav({ view: "detail", protocolId: r.protocolId }); } catch (e) { toast.error(errorText(e)); } }}>{adp.isPending ? "Configuring…" : "Configure POL-QC-032D draft"}</button>
       </Panel>
+      <ImportPackagePanel />
     </div>
   );
 }
@@ -375,6 +379,42 @@ function Documents({ setNav }: { setNav: (n: Nav) => void }) {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+/* -------------------- 8-protocol calibration package import -------------------- */
+
+function ImportPackagePanel() {
+  const utils = trpc.useUtils();
+  const imp = trpc.protocols.importPackage.useMutation();
+  const [result, setResult] = useState<Awaited<ReturnType<typeof imp.mutateAsync>> | null>(null);
+  return (
+    <Panel title="Import the 8 calibration protocols (supplied package)">
+      <p className="pm-muted" style={{ marginTop: 0 }}>
+        Imports CAL-QC-HPLC-001, POL-001, BAL-001 (Rev.01, QA pending), MOA-001, DIS-001, DISINT-001, REF-001 and UV-001 as DRAFT revisions,
+        exactly as supplied. Every criterion is marked {"\u201C"}PENDING TECHNICAL VERIFICATION{"\u201D"}; values not given by the source stay
+        {"\u201C"}NOT SPECIFIED IN SUPPLIED USP SOURCE{"\u201D"}. Historical records are not imported as results. Matching equipment is linked automatically
+        (the balance QC-I-074 is registered if missing; the HPLC is not linked because LC-2030 PLUS ≠ QC-I-104). Running it again skips existing protocols.
+        Importing a protocol never implies that an instrument passed.
+      </p>
+      <button type="button" className="pm-btn primary" disabled={imp.isPending} onClick={async () => {
+        try {
+          const r = await imp.mutateAsync();
+          setResult(r);
+          await utils.protocols.invalidate();
+          toast.success(`Package import: ${r.created} created, ${r.skipped} already existed, ${r.failed} failed`);
+        } catch (e) { toast.error(errorText(e)); }
+      }}>{imp.isPending ? "Importing…" : "Import 8 protocols"}</button>
+      {result && (
+        <div className="pm-table-wrap" style={{ marginTop: 12 }}>
+          <table className="pm-table">
+            <thead><tr><th>Protocol</th><th>Status</th><th>Tests</th><th>Linked equipment</th><th>Notes</th></tr></thead>
+            <tbody>{result.lines.map(l => <tr key={l.protocolNumber}><td>{l.protocolNumber}</td><td><span className={`pm-badge ${l.status === "created" ? "pm-tone-ok" : l.status === "failed" ? "pm-tone-bad" : "pm-tone-muted"}`}>{l.status}</span></td><td>{l.tests}</td><td>{l.linkedEquipment ?? "— (model-level)"}</td><td className="pm-muted">{l.notes.join(" ")}</td></tr>)}</tbody>
+          </table>
+          {result.notes.length > 0 && <ul className="pm-muted">{result.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>}
         </div>
       )}
     </Panel>

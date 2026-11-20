@@ -22,6 +22,7 @@ export type Nav =
   | { view: "references" }
   | { view: "review" }
   | { view: "executions"; revisionId?: string }
+  | { view: "runs"; runId?: string }
   | { view: "documents" }
   | { view: "settings" };
 export type RegistryFlag = "due-for-review" | "expired-references" | "pending-verification" | "open-gaps" | "review-flag";

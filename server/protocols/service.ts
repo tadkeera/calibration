@@ -1017,7 +1017,16 @@ export async function releasedForEquipment(instrumentKey: string) {
   return { equipment, released: out, notExecutable: drafts };
 }
 
-export async function executeProtocol(actor: Actor, input: { revisionId: string; instrumentKey: string; measurements: Measurements; validationRecordId?: number | null; stage?: string; comments?: string; activityKey?: string | null; deviations?: ExecutionDeviation[] }) {
+export type ExecuteInput = { revisionId: string; instrumentKey: string; measurements: Measurements; validationRecordId?: number | null; stage?: string; comments?: string; activityKey?: string | null; deviations?: ExecutionDeviation[] };
+
+export async function executeProtocol(actor: Actor, input: ExecuteInput) {
+  const prepared = await prepareExecution(actor, input);
+  await protocolStore().apply(prepared.changes);
+  return { executionId: prepared.executionId, evaluation: prepared.evaluation };
+}
+
+/** Validates a formal execution and returns its change set (applied by executeProtocol, or together with a run by recordRun). */
+export async function prepareExecution(actor: Actor, input: ExecuteInput) {
   const duties = await requireDuty(actor, "executor");
   const revision = await loadRevision(input.revisionId);
   if (revision.status !== "released")
@@ -1042,7 +1051,7 @@ export async function executeProtocol(actor: Actor, input: { revisionId: string;
   const evaluation = evaluateExecution(revision.content, input.measurements);
   const t = now();
   const executionId = id();
-  await protocolStore().apply([
+  const changes: Change[] = [
     {
       op: "insert",
       table: "protocol_executions",
@@ -1050,8 +1059,8 @@ export async function executeProtocol(actor: Actor, input: { revisionId: string;
     },
     audit(actor, duties, { protocolId: protocol.id, revisionId: revision.id, revisionNumber: revision.revision_number, entityType: "execution", entityId: executionId, action: "execution.recorded", next: { overall: evaluation.overall, counts: evaluation.counts, instrumentKey: equipment.instrumentKey, equipmentId: equipment.instrumentId, validationRecordId: input.validationRecordId ?? null, contentHash: revision.content_hash, activity: activity?.activity ?? null, deviations: deviations.length } }),
     notify("execution-review-required", "technical-reviewer", null, protocol.id, revision.id, `${protocol.protocol_number} rev ${revision.revision_number}: execution on ${equipment.instrumentId} recorded (calculated ${evaluation.overall}${deviations.length ? `, ${deviations.length} deviation(s)` : ""}) — technical review required`, `exec-recorded:${executionId}`),
-  ]);
-  return { executionId, evaluation };
+  ];
+  return { executionId, evaluation, changes, equipment, protocol, revision };
 }
 
 type ExecutionReviewRowDb = { id: string; execution_id: string; protocol_id: string; action: string; from_status: string; to_status: string; signature_meaning: string; reauthenticated: boolean; comment: string; actor_user_id: number; actor_name: string | null; actor_role: string | null; created_at: string };
@@ -1370,6 +1379,13 @@ export async function logPdfGenerated(actor: Actor, input: { revisionId: string;
   ]);
   return { ok: true };
 }
+
+/* ------------------------------------------------------------------ */
+/* Internals shared with the run / equipment / package services          */
+/* ------------------------------------------------------------------ */
+
+export const internals = { requireDuty, dutiesOf, audit, notify, id, now, loadProtocol, loadRevision, referenceLookup, actorRole, parseContentOrThrow, assertStructure, revisionDerived };
+export type { ProtocolRow, RevisionRow };
 
 /* ------------------------------------------------------------------ */
 /* First configured protocol: POL-QC-032D (ADP220)                      */

@@ -10,7 +10,7 @@
 --   * If an earlier version of this file was already applied, simply run the
 --     whole (updated) file again: new tables/columns are added, nothing is lost.
 --   * Verify afterwards: GET https://<your-app>/api/health/schema
---     → "protocolManagement": { "ok": true }.
+--     → "protocolManagement": { "ok": true, "workflowOk": true }.
 --
 -- Security model:
 --   * Tables are readable by service_role only (RLS on, anon/authenticated revoked).
@@ -317,6 +317,114 @@ CREATE TABLE IF NOT EXISTS public.protocol_attachments (
 CREATE INDEX IF NOT EXISTS protocol_attachments_entity_idx ON public.protocol_attachments(entity_type, entity_id);
 
 -- ---------------------------------------------------------------------------
+-- Module extension (v3): equipment specifications page, field-level equipment
+-- audit, calibration runs (dynamic per-protocol workflow) and their immutable
+-- version history. Additive and idempotent (re-run the whole file).
+-- Rollback notes: server/sql/protocol_management_v3_rollback.sql
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS public.protocol_equipment_specs (
+  id text PRIMARY KEY,
+  instrument_key text NOT NULL UNIQUE,
+  equipment_type text,
+  status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','retired')),
+  specs jsonb NOT NULL DEFAULT '{}'::jsonb,
+  retired_reason text,
+  retired_at timestamptz,
+  created_by_user_id bigint NOT NULL REFERENCES public.app_users(id),
+  created_by_name text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_by_user_id bigint REFERENCES public.app_users(id),
+  updated_by_name text,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  row_version integer NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS public.protocol_equipment_changes (
+  id text PRIMARY KEY,
+  change_set_id text NOT NULL,
+  instrument_key text NOT NULL,
+  field_group text NOT NULL,
+  field text NOT NULL,
+  label text,
+  previous_value jsonb,
+  new_value jsonb,
+  unit text,
+  critical boolean NOT NULL DEFAULT false,
+  reason text,
+  reference text,
+  actor_user_id bigint NOT NULL REFERENCES public.app_users(id),
+  actor_name text,
+  actor_role text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT protocol_equipment_changes_reason CHECK (NOT critical OR length(btrim(coalesce(reason, ''))) >= 3)
+);
+CREATE INDEX IF NOT EXISTS protocol_equipment_changes_key_idx ON public.protocol_equipment_changes(instrument_key, created_at);
+
+CREATE TABLE IF NOT EXISTS public.protocol_runs (
+  id text PRIMARY KEY,
+  run_number text NOT NULL UNIQUE,
+  protocol_id text NOT NULL REFERENCES public.protocols(id) ON DELETE RESTRICT,
+  revision_id text NOT NULL REFERENCES public.protocol_revisions(id) ON DELETE RESTRICT,
+  protocol_number text NOT NULL,
+  revision_number integer NOT NULL,
+  revision_status text NOT NULL,
+  content_hash text NOT NULL,
+  protocol_snapshot jsonb NOT NULL,
+  instrument_key text NOT NULL,
+  equipment_snapshot jsonb NOT NULL,
+  equipment_version text NOT NULL,
+  measurements jsonb NOT NULL DEFAULT '{}'::jsonb,
+  evaluation jsonb,
+  overall_result text,
+  current_step text,
+  status text NOT NULL CHECK (status IN ('draft','recorded','abandoned')),
+  execution_id text REFERENCES public.protocol_executions(id),
+  abandon_reason text,
+  created_by_user_id bigint NOT NULL REFERENCES public.app_users(id),
+  created_by_name text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_by_user_id bigint REFERENCES public.app_users(id),
+  updated_by_name text,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  row_version integer NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS protocol_runs_protocol_idx ON public.protocol_runs(protocol_id, instrument_key, status);
+
+CREATE TABLE IF NOT EXISTS public.protocol_run_snapshots (
+  id text PRIMARY KEY,
+  run_id text NOT NULL REFERENCES public.protocol_runs(id) ON DELETE RESTRICT,
+  row_version integer NOT NULL,
+  action text NOT NULL,
+  measurements jsonb NOT NULL,
+  evaluation jsonb,
+  overall_result text,
+  equipment_version text,
+  reason text,
+  actor_user_id bigint NOT NULL REFERENCES public.app_users(id),
+  actor_name text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT protocol_run_snapshots_once UNIQUE (run_id, row_version)
+);
+
+CREATE OR REPLACE FUNCTION public.protocol_runs_guard()
+RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
+BEGIN
+  IF OLD.status <> 'draft' THEN
+    RAISE EXCEPTION 'protocol_runs: recorded / abandoned runs are immutable';
+  END IF;
+  IF NEW.protocol_id IS DISTINCT FROM OLD.protocol_id OR NEW.revision_id IS DISTINCT FROM OLD.revision_id
+     OR NEW.equipment_snapshot IS DISTINCT FROM OLD.equipment_snapshot OR NEW.equipment_version IS DISTINCT FROM OLD.equipment_version
+     OR NEW.content_hash IS DISTINCT FROM OLD.content_hash OR NEW.protocol_snapshot IS DISTINCT FROM OLD.protocol_snapshot OR NEW.created_by_user_id IS DISTINCT FROM OLD.created_by_user_id
+     OR NEW.instrument_key IS DISTINCT FROM OLD.instrument_key OR NEW.run_number IS DISTINCT FROM OLD.run_number THEN
+    RAISE EXCEPTION 'protocol_runs: protocol, revision, equipment snapshot and creator are immutable';
+  END IF;
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS protocol_runs_guard ON public.protocol_runs;
+CREATE TRIGGER protocol_runs_guard BEFORE UPDATE ON public.protocol_runs FOR EACH ROW EXECUTE FUNCTION public.protocol_runs_guard();
+
+-- ---------------------------------------------------------------------------
 -- Database-level integrity guards
 -- ---------------------------------------------------------------------------
 
@@ -426,11 +534,11 @@ DO $$
 DECLARE
   t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['protocol_approvals','protocol_audit_events','protocol_executions','protocol_notifications','protocol_notification_reads','protocol_execution_reviews','protocol_attachments'] LOOP
+  FOREACH t IN ARRAY ARRAY['protocol_approvals','protocol_audit_events','protocol_executions','protocol_notifications','protocol_notification_reads','protocol_execution_reviews','protocol_attachments','protocol_equipment_changes','protocol_run_snapshots'] LOOP
     EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', t || '_append_only', t);
     EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.protocol_append_only_guard()', t || '_append_only', t);
   END LOOP;
-  FOREACH t IN ARRAY ARRAY['protocols','protocol_references','protocol_templates','protocol_duty_assignments'] LOOP
+  FOREACH t IN ARRAY ARRAY['protocols','protocol_references','protocol_templates','protocol_duty_assignments','protocol_equipment_specs','protocol_runs'] LOOP
     EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', t || '_no_delete', t);
     EXECUTE format('CREATE TRIGGER %I BEFORE DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.protocol_append_only_guard()', t || '_no_delete', t);
   END LOOP;
@@ -452,7 +560,8 @@ DECLARE
   v_applied integer := 0;
   v_allowed constant text[] := ARRAY['protocols','protocol_revisions','protocol_references','protocol_approvals',
     'protocol_review_comments','protocol_audit_events','protocol_executions','protocol_notifications',
-    'protocol_notification_reads','protocol_duty_assignments','protocol_templates','protocol_execution_reviews','protocol_attachments'];
+    'protocol_notification_reads','protocol_duty_assignments','protocol_templates','protocol_execution_reviews','protocol_attachments',
+    'protocol_equipment_specs','protocol_equipment_changes','protocol_runs','protocol_run_snapshots'];
 BEGIN
   IF p_changes IS NULL OR jsonb_typeof(p_changes) <> 'array' THEN
     RAISE EXCEPTION 'protocol_apply_changes: p_changes must be a JSON array';
@@ -508,7 +617,8 @@ DECLARE
 BEGIN
   FOREACH t IN ARRAY ARRAY['protocols','protocol_revisions','protocol_references','protocol_approvals',
     'protocol_review_comments','protocol_audit_events','protocol_executions','protocol_notifications',
-    'protocol_notification_reads','protocol_duty_assignments','protocol_templates','protocol_execution_reviews','protocol_attachments'] LOOP
+    'protocol_notification_reads','protocol_duty_assignments','protocol_templates','protocol_execution_reviews','protocol_attachments',
+    'protocol_equipment_specs','protocol_equipment_changes','protocol_runs','protocol_run_snapshots'] LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('REVOKE ALL ON public.%I FROM anon, authenticated, service_role', t);
     EXECUTE format('GRANT SELECT ON public.%I TO service_role', t);
@@ -524,7 +634,7 @@ COMMIT;
 -- function immediately (avoids PGRST202/PGRST205 "not found in schema cache").
 NOTIFY pgrst, 'reload schema';
 
--- Verification: expect 13 rows.
+-- Verification: expect 17 rows (13 core + 4 v3 workflow tables).
 SELECT table_name FROM information_schema.tables
  WHERE table_schema = 'public' AND table_name LIKE 'protocol%'
  ORDER BY table_name;
