@@ -1,13 +1,21 @@
 /**
- * Unified calibration-run workflow. ONE screen for every instrument, but the
- * steps are generated from the protocol snapshot: Equipment → Protocol → one
- * step per protocol test → Results → Review → Approval → PDF. A polarimeter
- * protocol therefore has a different number of steps than an HPLC protocol.
+ * Unified, controlled nine-step calibration-run workflow. ONE workflow and the
+ * same nine labelled steps for every instrument:
+ *
+ *   Equipment Selection → Protocol → Accuracy → Repeatability → Linearity →
+ *   Results → Review → Approval → PDF
+ *
+ * The protocol still determines the actual test inventory. Device-specific
+ * tests are mapped into the three common test steps by their controlled name;
+ * every remaining test is recorded unchanged in Results as a labelled sub-test.
+ * No test, criterion or acceptance limit is omitted or altered.
  *
  *  - equipment data are frozen in a snapshot when the run is created
  *    (newer equipment data are announced, never applied silently);
  *  - every save is versioned; a concurrent save raises DRAFT_CONFLICT and the
  *    user compares / merges per test (both versions are always kept);
+ *  - an inapplicable Accuracy / Repeatability / Linearity step must carry a
+ *    written justification and a recorded confirmation — never silently skipped;
  *  - recording hands the data to the existing execution review / approval
  *    workflow (segregation of duties, password re-authentication);
  *  - the PDF is generated from the snapshot with a watermark until approved.
@@ -18,7 +26,19 @@ import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { evaluateExecution, type Measurements, type TestMeasurement } from "@shared/protocols/evaluate";
 import { diffEquipment, IDENTITY_FIELDS, NOT_AVAILABLE, SPEC_GROUPS, specDefinitions, type EquipmentSnapshot } from "@shared/protocols/equipment";
-import { measurementConflicts, mergeMeasurements, type RunStep } from "@shared/protocols/runWorkflow";
+import {
+  CANONICAL_STEP_KEYS,
+  CANONICAL_STEP_LABELS,
+  NA_CONFIRMATION_FIELD,
+  isStepNotApplicable,
+  mapTestsToSteps,
+  measurementConflicts,
+  mergeMeasurements,
+  naMeasurementKey,
+  type CanonicalStepKey,
+  type NaStepKey,
+  type RunStep,
+} from "@shared/protocols/runWorkflow";
 import type { ExecutionDeviation } from "@shared/protocols/executionReview";
 import { ErrorBox, Field, Loading, Panel, PendingTag, ResultBadge, askReason, errorText, fmtDate, type Nav, type PmUser, type ProtocolOutputs } from "./common";
 import { EvaluationView, TestInput } from "./ExecutionCenter";
@@ -54,7 +74,7 @@ function RunLauncher({ canExecute, onOpen }: { canExecute: boolean; onOpen: (run
       <Panel title="Start a calibration run">
         <div className="pm-alert pm-alert-info">
           <AlertTriangle size={16} />
-          <div>The workflow is unified, but each protocol defines its own tests: the number of steps differs per instrument (6 frame steps + one step per protocol test). Starting or completing a run never implies that the instrument passed.</div>
+          <div>All eight devices use the same nine controlled steps (Equipment Selection, Protocol, Accuracy, Repeatability, Linearity, Results, Review, Approval, PDF). The selected protocol supplies the device-specific tests — they are mapped into the test steps and all remaining tests stay visible in Results. Starting or completing a run never implies that the instrument passed.</div>
         </div>
         {catalog.isLoading ? <Loading /> : catalog.error ? <ErrorBox error={catalog.error} /> : !catalog.data?.length ? (
           <div className="pm-empty">No protocols are available for execution. Import the 8 calibration protocols from “Create Protocol”.</div>
@@ -131,6 +151,7 @@ function RunView({ runId, user, duties, onClose }: { runId: string; user: PmUser
   const [conflict, setConflict] = useState<Conflict | null>(null);
   const [comments, setComments] = useState("");
   const [deviations, setDeviations] = useState<ExecutionDeviation[]>([]);
+  const [language, setLanguage] = useState<"ar" | "en">(() => (localStorage.getItem("yemen-qc-language") === "ar" ? "ar" : "en"));
 
   useEffect(() => {
     if (!q.data || dirty) return;
@@ -142,6 +163,7 @@ function RunView({ runId, user, duties, onClose }: { runId: string; user: PmUser
 
   const content = q.data?.content;
   const evaluation = useMemo(() => (content ? evaluateExecution(content, measurements) : null), [content, measurements]);
+  const mapping = useMemo(() => (content ? mapTestsToSteps(content) : null), [content]);
   const execution = trpc.protocols.execution.useQuery({ executionId: q.data?.run.executionId ?? "" }, { enabled: !!q.data?.run.executionId });
 
   const save = trpc.protocols.saveRun.useMutation();
@@ -185,7 +207,30 @@ function RunView({ runId, user, duties, onClose }: { runId: string; user: PmUser
     setDirty(true);
   };
 
-  const go = (i: number) => setStepKey(steps[Math.min(steps.length - 1, Math.max(0, i))].key);
+  /** Navigation follows validation rules: review/approval need a recorded execution. */
+  const go = (i: number) => {
+    const target = steps[Math.min(steps.length - 1, Math.max(0, i))];
+    const targetIndex = CANONICAL_STEP_KEYS.indexOf(target.key as CanonicalStepKey);
+    if (targetIndex >= CANONICAL_STEP_KEYS.indexOf("review") && !d.run.executionId) {
+      toast.error("Record the run in the Results step before opening Review or Approval.");
+      return;
+    }
+    setStepKey(target.key);
+  };
+
+  const stepStatus = (s: RunStep): string | undefined => {
+    if (s.key === "accuracy" || s.key === "repeatability" || s.key === "linearity") {
+      const results = s.testKeys.map(k => testResult(k)?.status).filter(Boolean) as string[];
+      if (results.includes("FAIL")) return "FAIL";
+      if (results.includes("INCOMPLETE")) return "INCOMPLETE";
+      if (results.length && results.every(r => r === "PASS")) return "PASS";
+      if (results.length && results.some(r => r === "UNDER REVIEW")) return "UNDER REVIEW";
+      if (isStepNotApplicable(measurements, s.key as NaStepKey)) return "NOT APPLICABLE";
+      return undefined;
+    }
+    return frameStatus(s.key, d, dirty);
+  };
+  const stepTitle = (s: RunStep) => (language === "ar" ? s.labelAr : s.label);
 
   const recordBlockers = d.blockers.filter(b => b.blocksRecording);
   const approvalBlockers = d.blockers.filter(b => b.blocksApproval);
@@ -253,10 +298,13 @@ function RunView({ runId, user, duties, onClose }: { runId: string; user: PmUser
         }
       >
         <Banners d={d} dirty={dirty} />
-        <nav className="pm-stepper" aria-label="Calibration run steps">
-          {steps.map((s, i) => <StepButton key={s.key} step={s} index={i} active={i === idx} status={s.kind === "test" ? testResult(s.testKey)?.status : frameStatus(s.key, d, dirty)} onClick={() => go(i)} />)}
+        <nav className="pm-stepper" aria-label="Calibration run steps" dir={language === "ar" ? "rtl" : "ltr"}>
+          {steps.map((s, i) => <StepButton key={s.key} step={s} index={i} active={i === idx} status={stepStatus(s)} lang={language} onClick={() => go(i)} />)}
         </nav>
-        <div className="pm-muted" style={{ marginTop: 6 }}>Step {idx + 1} of {steps.length} — {steps.filter(s => s.kind === "test").length} protocol-specific test steps.</div>
+        <div className="pm-row" style={{ marginTop: 6, justifyContent: "space-between" }}>
+          <div className="pm-muted">Step {idx + 1} of {steps.length} — {content ? content.sections.flatMap(s => s.tests).length : 0} protocol-specific tests mapped across the nine controlled steps.</div>
+          <button type="button" className="pm-btn small ghost" onClick={() => setLanguage(l => (l === "ar" ? "en" : "ar"))}>{language === "ar" ? "English" : "العربية"}</button>
+        </div>
       </Panel>
 
       {conflict && evaluation && (
@@ -266,34 +314,76 @@ function RunView({ runId, user, duties, onClose }: { runId: string; user: PmUser
           busy={save.isPending} />
       )}
 
-      <Panel title={`${idx + 1}. ${step.label}`} actions={<><button type="button" className="pm-btn small" disabled={idx === 0} onClick={() => go(idx - 1)}>← Previous</button><button type="button" className="pm-btn small" disabled={idx === steps.length - 1} onClick={() => go(idx + 1)}>Next →</button></>}>
+      <Panel title={`${idx + 1}. ${stepTitle(step)}`} actions={<><button type="button" className="pm-btn small" disabled={idx === 0} onClick={() => go(idx - 1)}>← Previous</button><button type="button" className="pm-btn small" disabled={idx === steps.length - 1} onClick={() => go(idx + 1)}>Next →</button></>}>
         {step.key === "equipment" && <EquipmentStep snapshot={d.run.equipmentSnapshot as EquipmentSnapshot} current={d.currentEquipment as EquipmentSnapshot | null} newer={d.newerEquipmentData} />}
         {step.key === "protocol" && content && <ProtocolStep d={d} />}
-        {step.kind === "test" && content && (() => {
-          const test = content.sections.flatMap(s => s.tests).find(t => t.key === step.testKey)!;
-          const r = testResult(step.testKey);
-          return (
-            <div className="pm-grid">
-              {editable ? <TestInput test={test} value={measurements[test.key] ?? {}} onChange={setTest(test.key)} preview={r?.status} /> : <ReadOnlyTest measurement={measurements[test.key] ?? {}} />}
-              {test.notes && <div className="pm-alert pm-alert-info"><div className="pm-pre">{test.notes}</div></div>}
-              {r && (r.calculations.length > 0 || r.criteria.length > 0) && (
-                <div className="pm-table-wrap">
-                  <table className="pm-table">
-                    <thead><tr><th>Item</th><th>Value</th><th>Limit / formula</th><th>Outcome</th></tr></thead>
-                    <tbody>
-                      {r.calculations.map(c => <tr key={`c-${c.key}-${c.levelKey ?? ""}`}><td>{c.label}{c.levelKey ? ` @${c.levelKey}` : ""}</td><td>{c.error ? <span className="pm-tone-bad">{c.error}</span> : `${c.value ?? "—"} ${c.unit}`}</td><td className="pm-muted">{c.formula}</td><td /></tr>)}
-                      {r.criteria.map(c => <tr key={`k-${c.key}-${c.levelKey ?? ""}`}><td>{c.key}{c.levelKey ? ` @${c.levelKey}` : ""} {c.verificationStatus !== "verified" && <PendingTag verified={false} />}</td><td>{c.value === null || c.value === undefined ? "—" : String(c.value)}</td><td>{c.limit}</td><td><ResultBadge result={c.status} /><div className="pm-muted">{c.message}</div></td></tr>)}
-                    </tbody>
-                  </table>
+        {(step.key === "accuracy" || step.key === "repeatability" || step.key === "linearity") && content && mapping && (
+          <div className="pm-grid">
+            {step.testKeys.length === 0 ? (
+              <NaStepPanel
+                step={step.key as NaStepKey}
+                value={measurements[naMeasurementKey(step.key)] ?? {}}
+                editable={editable}
+                onChange={next => { setMeasurements(m => ({ ...m, [naMeasurementKey(step.key)]: next })); setDirty(true); }}
+              />
+            ) : step.testKeys.map(testKey => {
+              const test = content.sections.flatMap(s => s.tests).find(t => t.key === testKey);
+              if (!test) return null;
+              const r = testResult(testKey);
+              return (
+                <div className="pm-grid" key={testKey}>
+                  <h3>{test.key} · {test.name}</h3>
+                  {test.description && <div className="pm-muted" style={{ whiteSpace: "pre-wrap" }}>{test.description}</div>}
+                  {test.notes && <div className="pm-alert pm-alert-info"><div className="pm-pre">{test.notes}</div></div>}
+                  {editable ? <TestInput test={test} value={measurements[test.key] ?? {}} onChange={setTest(test.key)} preview={r?.status} /> : <ReadOnlyTest measurement={measurements[test.key] ?? {}} />}
+                  {r && (r.calculations.length > 0 || r.criteria.length > 0) && (
+                    <div className="pm-table-wrap">
+                      <table className="pm-table">
+                        <thead><tr><th>Item</th><th>Value</th><th>Limit / formula</th><th>Outcome</th></tr></thead>
+                        <tbody>
+                          {r.calculations.map(c => <tr key={`c-${c.key}-${c.levelKey ?? ""}`}><td>{c.label}{c.levelKey ? ` @${c.levelKey}` : ""}</td><td>{c.error ? <span className="pm-tone-bad">{c.error}</span> : `${c.value ?? "—"} ${c.unit}`}</td><td className="pm-muted">{c.formula}</td><td /></tr>)}
+                          {r.criteria.map(c => <tr key={`k-${c.key}-${c.levelKey ?? ""}`}><td>{c.key}{c.levelKey ? ` @${c.levelKey}` : ""} {c.verificationStatus !== "verified" && <PendingTag verified={false} />}</td><td>{c.value === null || c.value === undefined ? "—" : String(c.value)}</td><td>{c.limit}</td><td><ResultBadge result={c.status} /><div className="pm-muted">{c.message}</div></td></tr>)}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {r?.notes.length ? <ul className="pm-muted">{r.notes.map((n, i) => <li key={i}>{n}</li>)}</ul> : null}
                 </div>
-              )}
-              {r?.notes.length ? <ul className="pm-muted">{r.notes.map((n, i) => <li key={i}>{n}</li>)}</ul> : null}
-            </div>
-          );
-        })()}
-        {step.key === "results" && evaluation && (
+              );
+            })}
+          </div>
+        )}
+        {step.key === "results" && evaluation && mapping && (
           <div className="pm-grid">
             <EvaluationView evaluation={evaluation} />
+            {mapping.results.length > 0 && (
+              <div className="pm-grid">
+                <h3>Additional protocol-specific tests</h3>
+                <div className="pm-alert pm-alert-info">
+                  <div>Tests defined by the selected protocol that are not Accuracy, Repeatability or Linearity. They are recorded here with their original names, units, formulas and acceptance criteria — none is omitted or changed.</div>
+                </div>
+                {mapping.results.map(test => {
+                  const r = testResult(test.key);
+                  return (
+                    <div className="pm-grid" key={test.key}>
+                      <h4>{test.key} · {test.name} <span className="pm-muted">({test.stage})</span></h4>
+                      {editable ? <TestInput test={test} value={measurements[test.key] ?? {}} onChange={setTest(test.key)} preview={r?.status} /> : <ReadOnlyTest measurement={measurements[test.key] ?? {}} />}
+                      {r && (r.calculations.length > 0 || r.criteria.length > 0) && (
+                        <div className="pm-table-wrap">
+                          <table className="pm-table">
+                            <thead><tr><th>Item</th><th>Value</th><th>Limit / formula</th><th>Outcome</th></tr></thead>
+                            <tbody>
+                              {r.calculations.map(c => <tr key={`c-${c.key}-${c.levelKey ?? ""}`}><td>{c.label}{c.levelKey ? ` @${c.levelKey}` : ""}</td><td>{c.error ? <span className="pm-tone-bad">{c.error}</span> : `${c.value ?? "—"} ${c.unit}`}</td><td className="pm-muted">{c.formula}</td><td /></tr>)}
+                              {r.criteria.map(c => <tr key={`k-${c.key}-${c.levelKey ?? ""}`}><td>{c.key}{c.levelKey ? ` @${c.levelKey}` : ""} {c.verificationStatus !== "verified" && <PendingTag verified={false} />}</td><td>{c.value === null || c.value === undefined ? "—" : String(c.value)}</td><td>{c.limit}</td><td><ResultBadge result={c.status} /><div className="pm-muted">{c.message}</div></td></tr>)}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             {d.run.status === "draft" && (
               <div className="pm-grid">
                 <h3>Record formal execution</h3>
@@ -350,12 +440,17 @@ function frameStatus(key: string, d: { run: { status: string; executionId: strin
   return undefined;
 }
 
-function StepButton({ step, index, active, status, onClick }: { step: RunStep; index: number; active: boolean; status?: string; onClick: () => void }) {
-  const tone = status === "PASS" || status === "APPROVED" || status === "RECORDED" ? "ok" : status === "FAIL" || status === "REJECTED" ? "bad" : status === "UNDER REVIEW" ? "info" : status === "INCOMPLETE" || status === "UNSAVED" ? "warn" : status ? "muted" : "";
+function StepButton({ step, index, active, status, lang, onClick }: { step: RunStep; index: number; active: boolean; status?: string; lang: "ar" | "en"; onClick: () => void }) {
+  const tone = status === "PASS" || status === "APPROVED" || status === "RECORDED" ? "ok" : status === "FAIL" || status === "REJECTED" ? "bad" : status === "UNDER REVIEW" || status === "NOT APPLICABLE" ? "info" : status === "INCOMPLETE" || status === "UNSAVED" ? "warn" : status ? "muted" : "";
+  const label = lang === "ar" ? step.labelAr : step.label;
   return (
-    <button type="button" className={`pm-step ${active ? "is-active" : ""} ${tone ? `is-${tone}` : ""} ${step.kind === "test" ? "is-test" : ""}`} onClick={onClick} title={status ? `${step.label} — ${status}` : step.label}>
+    <button type="button" className={`pm-step ${active ? "is-active" : ""} ${tone ? `is-${tone}` : ""}`} onClick={onClick} title={status ? `${step.label} — ${status}` : step.label} aria-label={`${index + 1}. ${step.label}`}>
       <span className="pm-step-num">{tone === "ok" ? <CheckCircle2 size={13} /> : tone === "bad" ? <XCircle size={13} /> : index + 1}</span>
-      <span className="pm-step-label">{step.kind === "test" && step.testKey ? `${step.testKey} · ` : ""}{step.label}</span>
+      <span className="pm-step-label">
+        {label}
+        {lang === "en" && <span className="pm-muted" style={{ display: "block", fontSize: 10 }} dir="rtl">{step.labelAr}</span>}
+        {status && <span className="pm-muted" style={{ display: "block", fontSize: 10 }}>{status}</span>}
+      </span>
     </button>
   );
 }
@@ -386,7 +481,7 @@ function EquipmentStep({ snapshot, current, newer }: { snapshot: EquipmentSnapsh
   const show = (v: unknown) => (v === null || v === undefined || v === "" ? NOT_AVAILABLE : String(v));
   return (
     <div className="pm-grid">
-      <div className="pm-muted">Read-only. Snapshot captured {fmtDate(snapshot.capturedAt, true)} (equipment data version {snapshot.specsRowVersion}). Edit equipment data on the page «تعديل بيانات ومواصفات الأجهزة».</div>
+      <div className="pm-muted">Read-only. Snapshot captured {fmtDate(snapshot.capturedAt, true)} (equipment data version {snapshot.specsRowVersion}). Edit equipment data on the page «تعديل بيانات المعدات والمواصفات».</div>
       <div className="pm-grid c4">
         {IDENTITY_FIELDS.map(f => <Field key={f.key} label={f.label}><div className={snapshot.identity[f.key] ? "" : "pm-muted"}>{show(snapshot.identity[f.key])}</div></Field>)}
         <Field label="Status at snapshot"><div>{snapshot.status}</div></Field>
@@ -456,6 +551,30 @@ function ReadOnlyTest({ measurement: m }: { measurement: TestMeasurement }) {
   if (m.comment) rows.push(["Comment", m.comment]);
   if (!rows.length) return <div className="pm-empty">No data recorded for this test.</div>;
   return <div className="pm-table-wrap"><table className="pm-table"><tbody>{rows.map(([k, v], i) => <tr key={i}><th>{k}</th><td>{v}</td></tr>)}</tbody></table></div>;
+}
+
+/** Documents a canonical test step that has no configured test for this device. */
+function NaStepPanel({ step, value, editable, onChange }: { step: NaStepKey; value: TestMeasurement; editable: boolean; onChange: (next: TestMeasurement) => void }) {
+  const label = CANONICAL_STEP_LABELS[step];
+  const justification = value.naJustification ?? "";
+  const documented = isStepNotApplicable({ [naMeasurementKey(step)]: value }, step);
+  const patch = (p: Partial<TestMeasurement>) => onChange({ ...value, ...p });
+  return (
+    <div className="pm-grid">
+      <div className="pm-alert pm-alert-warn"><AlertTriangle size={16} /><div><strong>Not Applicable — {label.label} ({label.labelAr})</strong><br />The selected protocol defines no {label.label.toLowerCase()} test. The step is never silently skipped: record a written justification and a reviewer confirmation to close it. Formal recording and approval stay blocked until this is done.</div></div>
+      {!editable && <div className="pm-alert pm-alert-info"><div>{documented ? "Documented as Not Applicable." : "Not documented — this step is still open."}</div></div>}
+      <Field label="This test is not applicable for this device / protocol">
+        <label className="pm-row"><input type="checkbox" disabled={!editable} checked={value.notApplicable === true} onChange={e => patch({ notApplicable: e.target.checked })} /> Not applicable</label>
+      </Field>
+      <Field label="Documented justification (minimum 10 characters)" hint="Explain why the protocol has no such test for this device. Do not invent a test or a criterion.">
+        <textarea rows={3} disabled={!editable} value={justification} onChange={e => patch({ naJustification: e.target.value })} placeholder="e.g. The supplied CAL-QC-MOA-001 protocol defines no linearity test; only the documented OQ/PQ tests apply." />
+      </Field>
+      <Field label="Reviewer confirmation">
+        <label className="pm-row"><input type="checkbox" disabled={!editable} checked={value.fields?.[NA_CONFIRMATION_FIELD] === true} onChange={e => patch({ fields: { ...(value.fields ?? {}), [NA_CONFIRMATION_FIELD]: e.target.checked } })} /> I confirm this Not Applicable decision is technically reviewed and accepted</label>
+      </Field>
+      {value.notApplicable && !documented && <div className="pm-alert pm-alert-bad"><AlertTriangle size={16} /><div>Provide a justification of at least 10 characters and tick the reviewer confirmation to close this step.</div></div>}
+    </div>
+  );
 }
 
 function summarize(m: unknown) {

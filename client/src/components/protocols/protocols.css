@@ -103,7 +103,7 @@
 .pm-step:hover { border-color: #0C5A4C; }
 .pm-step.is-test { background: #FAFCF7; }
 .pm-step-num { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; border-radius: 999px; background: #E8EDE4; font-size: 11px; }
-.pm-step-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm-step-label { overflow: hidden; text-overflow: ellipsis; white-space: normal; line-height: 1.15; max-width: 190px; }
 .pm-step.is-ok .pm-step-num { background: #DDEEE1; color: #237442; }
 .pm-step.is-bad .pm-step-num { background: #F6E1DE; color: #A33C30; }
 .pm-step.is-warn .pm-step-num { background: #FBEBD3; color: #8A5A12; }

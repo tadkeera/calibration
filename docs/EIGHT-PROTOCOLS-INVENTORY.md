@@ -35,18 +35,32 @@ General rules applied on import:
 | 7 | CAL-QC-REF-001 Refractometer | Rev 00 DRAFT | <831>, <1058> | 6 | `refractometer`: QC-I-030, RFM340 |
 | 8 | CAL-QC-UV-001 UV-Vis Spectrophotometer | Rev 00 DRAFT | <857>, <1857>, <1058> | 8 | `spectrophotometer`: QC-I-097, V-730 |
 
-Each device's workflow therefore has a different number of steps. There are 6 fixed frame steps (Equipment, Protocol, Results, Review, Approval, PDF) plus one step per protocol test:
+All eight devices now use the **same canonical nine-step controlled workflow**, in this exact order:
 
-| Device | Steps |
-|---|---|
-| HPLC | 16 |
-| UV | 14 |
-| Balance | 14 |
-| Dissolution | 13 |
-| Disintegration | 13 |
-| Polarimeter | 12 |
-| Refractometer | 12 |
-| Moisture | 12 |
+1. Equipment Selection
+2. Protocol
+3. Accuracy
+4. Repeatability
+5. Linearity
+6. Results
+7. Review
+8. Approval
+9. PDF
+
+The protocol still determines the actual test inventory. Tests are mapped into the three common test steps by their controlled name; all remaining tests remain in the Results step as labelled sub-tests. The mapping is a view only — no test, formula, criterion or acceptance limit is changed (see `shared/protocols/runWorkflow.ts`). The per-protocol test counts are:
+
+| Device | Protocol tests | Workflow steps |
+|---|---|---|
+| HPLC | 10 | 9 |
+| UV | 8 | 9 |
+| Balance | 8 | 9 |
+| Dissolution | 7 | 9 |
+| Disintegration | 7 | 9 |
+| Polarimeter | 6 | 9 |
+| Refractometer | 6 | 9 |
+| Moisture | 6 | 9 |
+
+A test step with no configured test is never silently skipped: it requires a written Not-Applicable justification and a recorded reviewer confirmation, and it blocks formal recording/approval until closed.
 
 ## Numeric criteria imported, and their source
 

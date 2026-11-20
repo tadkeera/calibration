@@ -24,8 +24,8 @@ describe("8-protocol package definitions", () => {
       return [p.number, c.sections.flatMap(s => s.tests).length, buildRunSteps(c).length];
     });
     expect(counts).toEqual([
-      ["CAL-QC-HPLC-001", 10, 16], ["CAL-QC-POL-001", 6, 12], ["CAL-QC-BAL-001", 8, 14], ["CAL-QC-MOA-001", 6, 12],
-      ["CAL-QC-DIS-001", 7, 13], ["CAL-QC-DISINT-001", 7, 13], ["CAL-QC-REF-001", 6, 12], ["CAL-QC-UV-001", 8, 14],
+      ["CAL-QC-HPLC-001", 10, 9], ["CAL-QC-POL-001", 6, 9], ["CAL-QC-BAL-001", 8, 9], ["CAL-QC-MOA-001", 6, 9],
+      ["CAL-QC-DIS-001", 7, 9], ["CAL-QC-DISINT-001", 7, 9], ["CAL-QC-REF-001", 6, 9], ["CAL-QC-UV-001", 8, 9],
     ]);
   });
 

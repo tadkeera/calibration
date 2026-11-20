@@ -115,19 +115,19 @@ describe("calibration workflow v3 (SQLite store)", () => {
   });
 
   let runId = "";
-  it("creates a run with a dynamic per-protocol step list and a frozen equipment snapshot", async () => {
+  it("creates a run with the canonical nine-step workflow and a frozen equipment snapshot", async () => {
     const catalog = await wf.runCatalog();
     const steps = Object.fromEntries(catalog.map(c => [c.protocolNumber, c.stepCount]));
-    expect(steps["CAL-QC-HPLC-001"]).toBe(16);
-    expect(steps["CAL-QC-POL-001"]).toBe(12);
-    expect(steps["CAL-QC-BAL-001"]).toBe(14);
+    expect(steps["CAL-QC-HPLC-001"]).toBe(9);
+    expect(steps["CAL-QC-POL-001"]).toBe(9);
+    expect(steps["CAL-QC-BAL-001"]).toBe(9);
     const ref = await protocolByNumber("CAL-QC-REF-001");
     expect((await errorOf(wf.createRun(viewer, { protocolId: ref.id, instrumentKey: "refractometer" }))).code).toBe("FORBIDDEN");
     expect((await errorOf(wf.createRun(author, { protocolId: ref.id, instrumentKey: "polarimeter" }))).message).toMatch(/not linked/);
     const created = await wf.createRun(author, { protocolId: ref.id, instrumentKey: "refractometer" });
     runId = created.runId;
     const run = await wf.getRun(author, runId);
-    expect(run.steps.map(s => s.key)).toEqual(["equipment", "protocol", "test:T01", "test:T02", "test:T03", "test:T04", "test:T05", "test:T06", "results", "review", "approval", "pdf"]);
+    expect(run.steps.map(s => s.key)).toEqual(["equipment", "protocol", "accuracy", "repeatability", "linearity", "results", "review", "approval", "pdf"]);
     expect(run.run.equipmentSnapshot.specs.rangeMin).toMatchObject({ value: 1.3 });
     expect(run.blockers.map(b => b.code)).toEqual(expect.arrayContaining(["revision-not-released", "pending-verification", "incomplete"]));
     expect(run.evaluation.overall).toBe("INCOMPLETE");
@@ -215,7 +215,15 @@ describe("calibration workflow v3 (SQLite store)", () => {
     await svc.transition(qa, { password: PW, revisionId, expectedRowVersion: await rv(), action: "qa-approve", attestation: true, comment: "Approved after review" });
     await svc.transition(qa, { password: PW, revisionId, expectedRowVersion: await rv(), action: "release", effectiveDate: new Date().toISOString().slice(0, 10) });
     const { runId: rid } = await wf.createRun(author, { protocolId, instrumentKey: "polarimeter" });
-    const saved = await wf.saveRun(author, { runId: rid, expectedRowVersion: 1, measurements: { acc: { readings: [10.01, 10.0, 10.02], reference: 10 } } });
+    // Canonical nine-step rule: steps without a configured test must be documented, never silently skipped.
+    const undocumented = await wf.getRun(author, rid);
+    expect(undocumented.blockers.filter(b => b.blocksRecording).map(b => b.code)).toEqual(expect.arrayContaining(["na-step-repeatability", "na-step-linearity"]));
+    const na = (why: string) => ({ notApplicable: true, naJustification: why, fields: { reviewerConfirmed: true } });
+    const saved = await wf.saveRun(author, { runId: rid, expectedRowVersion: 1, measurements: {
+      acc: { readings: [10.01, 10.0, 10.02], reference: 10 },
+      "_na:repeatability": na("This released check protocol defines no repeatability test; repeatability is covered by the site qualification SOP."),
+      "_na:linearity": na("This released check protocol defines no linearity test; the intended use of this check is identification only."),
+    } });
     expect(saved.evaluation.overall).toBe("PASS");
     const before = await wf.getRun(author, rid);
     expect(before.blockers.filter(b => b.blocksRecording)).toEqual([]);

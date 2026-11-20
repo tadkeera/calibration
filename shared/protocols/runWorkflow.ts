@@ -1,30 +1,191 @@
 /**
- * Dynamic calibration-run workflow.
+ * Canonical nine-step calibration-run workflow — ONE workflow for every device.
  *
- * The workflow is NOT a fixed number of steps: it is derived from the protocol
- * revision — one step per configured test, framed by common steps:
- *   Equipment → Protocol → [one step per test …] → Results → Review → Approval → PDF
- * (e.g. HPLC CAL-QC-HPLC-001: 10 tests → 16 steps; Polarimeter CAL-QC-POL-001: 6 tests → 12 steps).
+ * The application's controlled validation workflow always shows the same nine
+ * steps, in the same order, for all eight protocols:
+ *
+ *   1. Equipment Selection
+ *   2. Protocol
+ *   3. Accuracy
+ *   4. Repeatability
+ *   5. Linearity
+ *   6. Results
+ *   7. Review
+ *   8. Approval
+ *   9. PDF
+ *
+ * The protocol still decides WHICH tests are performed. Its device-specific
+ * tests are mapped into Accuracy / Repeatability / Linearity by their
+ * controlled name, and every remaining test is preserved unchanged in the
+ * Results step as a clearly labelled sub-test. No test, field, formula,
+ * criterion or acceptance limit is deleted, renamed destructively or changed.
+ *
+ * Safety properties preserved from the previous implementation:
+ *  - equipment and protocol snapshots are immutable;
+ *  - every save is versioned and draft conflicts keep BOTH copies;
+ *  - verification / completeness / failure blockers stop formal recording and
+ *    approval (draft saving always remains available);
+ *  - a test step that is not applicable requires a written justification and a
+ *    recorded confirmation — it is never silently skipped.
  */
-import type { ExecutionEvaluation } from "./evaluate";
-import type { ProtocolContent } from "./model";
+import type { ExecutionEvaluation, Measurements, TestMeasurement } from "./evaluate";
+import { allTests, type ProtocolContent, type ProtocolTest } from "./model";
 
-export type RunStep = { key: string; kind: "frame" | "test"; label: string; labelAr: string; testKey?: string; sectionKey?: string; stage?: string };
+/* ------------------------------------------------------------------ */
+/* Canonical nine-step definition                                      */
+/* ------------------------------------------------------------------ */
 
+export const CANONICAL_STEP_KEYS = [
+  "equipment",
+  "protocol",
+  "accuracy",
+  "repeatability",
+  "linearity",
+  "results",
+  "review",
+  "approval",
+  "pdf",
+] as const;
+
+export type CanonicalStepKey = (typeof CANONICAL_STEP_KEYS)[number];
+
+/** Exact step numbers and labels required by the controlled validation workflow. */
+export const CANONICAL_STEP_LABELS: Record<CanonicalStepKey, { label: string; labelAr: string }> = {
+  equipment: { label: "Equipment Selection", labelAr: "اختيار الجهاز" },
+  protocol: { label: "Protocol", labelAr: "البروتوكول" },
+  accuracy: { label: "Accuracy", labelAr: "الدقة" },
+  repeatability: { label: "Repeatability", labelAr: "التكرارية" },
+  linearity: { label: "Linearity", labelAr: "الخطية" },
+  results: { label: "Results", labelAr: "النتائج" },
+  review: { label: "Review", labelAr: "المراجعة" },
+  approval: { label: "Approval", labelAr: "الاعتماد" },
+  pdf: { label: "PDF", labelAr: "PDF التقرير" },
+};
+
+/** Steps that must either contain tests or carry an approved "Not Applicable" record. */
+export const NA_STEP_KEYS = ["accuracy", "repeatability", "linearity"] as const;
+export type NaStepKey = (typeof NA_STEP_KEYS)[number];
+
+export type RunStep = {
+  key: string;
+  kind: "frame" | "test";
+  label: string;
+  labelAr: string;
+  /** Device-specific tests displayed in this step (empty for frame steps). */
+  testKeys: string[];
+  /** Kept for compatibility with older saved runs that used test:<key> steps. */
+  testKey?: string;
+  sectionKey?: string;
+  stage?: string;
+};
+
+/* ------------------------------------------------------------------ */
+/* Protocol test → step mapping                                        */
+/* ------------------------------------------------------------------ */
+
+export type CanonicalTestMapping = {
+  accuracy: ProtocolTest[];
+  repeatability: ProtocolTest[];
+  linearity: ProtocolTest[];
+  /** Every other protocol test — still recorded, still evaluated, unchanged. */
+  results: ProtocolTest[];
+};
+
+const nameOf = (t: ProtocolTest) => `${t.key} ${t.name}`.toLowerCase();
+const isAccuracy = (t: ProtocolTest) => /\baccuracy\b/.test(nameOf(t));
+const isRepeatability = (t: ProtocolTest) => /repeatab|\bprecision\b/.test(nameOf(t));
+const isLinearity = (t: ProtocolTest) => /linearity/.test(nameOf(t));
+
+/**
+ * Group the protocol's own tests into the three common test steps. This is a
+ * VIEW mapping only: evaluation and PDF still use the full protocol content,
+ * so no criterion or acceptance limit is changed.
+ */
+export function mapTestsToSteps(content: ProtocolContent): CanonicalTestMapping {
+  const tests = allTests(content).map(x => x.test);
+  const out: CanonicalTestMapping = { accuracy: [], repeatability: [], linearity: [], results: [] };
+  for (const t of tests) {
+    if (isAccuracy(t)) out.accuracy.push(t);
+    else if (isRepeatability(t)) out.repeatability.push(t);
+    else if (isLinearity(t)) out.linearity.push(t);
+    else out.results.push(t);
+  }
+  return out;
+}
+
+/** The nine steps, always identical for every protocol. */
 export function buildRunSteps(content: ProtocolContent): RunStep[] {
-  const tests: RunStep[] = content.sections.flatMap(s =>
-    s.tests.map(t => ({ key: `test:${t.key}`, kind: "test" as const, label: t.name, labelAr: t.name, testKey: t.key, sectionKey: s.key, stage: t.stage || s.stage }))
-  );
+  const mapping = mapTestsToSteps(content);
+  const step = (key: CanonicalStepKey, testKeys: string[] = []): RunStep => ({
+    key,
+    kind: "frame",
+    label: CANONICAL_STEP_LABELS[key].label,
+    labelAr: CANONICAL_STEP_LABELS[key].labelAr,
+    testKeys,
+  });
   return [
-    { key: "equipment", kind: "frame", label: "Equipment", labelAr: "الجهاز" },
-    { key: "protocol", kind: "frame", label: "Protocol", labelAr: "البروتوكول" },
-    ...tests,
-    { key: "results", kind: "frame", label: "Results", labelAr: "النتائج" },
-    { key: "review", kind: "frame", label: "Review", labelAr: "المراجعة" },
-    { key: "approval", kind: "frame", label: "Approval", labelAr: "الاعتماد" },
-    { key: "pdf", kind: "frame", label: "PDF report", labelAr: "تقرير PDF" },
+    step("equipment"),
+    step("protocol"),
+    step("accuracy", mapping.accuracy.map(t => t.key)),
+    step("repeatability", mapping.repeatability.map(t => t.key)),
+    step("linearity", mapping.linearity.map(t => t.key)),
+    step("results", mapping.results.map(t => t.key)),
+    step("review"),
+    step("approval"),
+    step("pdf"),
   ];
 }
+
+/* ------------------------------------------------------------------ */
+/* "Not Applicable" documentation for empty test steps                 */
+/* ------------------------------------------------------------------ */
+
+export const NA_MEASUREMENT_PREFIX = "_na:";
+export const NA_CONFIRMATION_FIELD = "reviewerConfirmed";
+
+export function naMeasurementKey(step: NaStepKey | string): string {
+  return `${NA_MEASUREMENT_PREFIX}${step}`;
+}
+
+function naMeasurement(measurements: Measurements, step: NaStepKey): TestMeasurement | undefined {
+  return measurements[naMeasurementKey(step)];
+}
+
+/** A step is properly documented as N/A only with a written reason AND a recorded confirmation. */
+export function isStepNotApplicable(measurements: Measurements, step: NaStepKey): boolean {
+  const m = naMeasurement(measurements, step);
+  return !!m?.notApplicable && (m.naJustification?.trim().length ?? 0) >= 10 && m.fields?.[NA_CONFIRMATION_FIELD] === true;
+}
+
+/**
+ * Extra blockers for the canonical test steps. They prevent formal recording
+ * and approval, never draft saving. They are added to runApprovalBlockers by
+ * the service layer on both read and record paths.
+ */
+export function canonicalStepBlockers(content: ProtocolContent, measurements: Measurements): RunBlocker[] {
+  const mapping = mapTestsToSteps(content);
+  const out: RunBlocker[] = [];
+  (NA_STEP_KEYS as readonly NaStepKey[]).forEach(step => {
+    if (mapping[step].length > 0) return;
+    const m = naMeasurement(measurements, step);
+    if (isStepNotApplicable(measurements, step)) return;
+    const written = !!m?.notApplicable && (m.naJustification?.trim().length ?? 0) >= 10;
+    const confirmed = m?.fields?.[NA_CONFIRMATION_FIELD] === true;
+    out.push({
+      code: `na-step-${step}`,
+      message: written && !confirmed
+        ? `The ${CANONICAL_STEP_LABELS[step].label} step is marked Not Applicable but reviewer confirmation has not been recorded.`
+        : `The ${CANONICAL_STEP_LABELS[step].label} step has no protocol test and is not documented as Not Applicable with a written justification and confirmation. Document the reason in the step instead of leaving it silent.`,
+      blocksRecording: true,
+      blocksApproval: true,
+    });
+  });
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* Approval / recording blockers (existing behaviour preserved)         */
+/* ------------------------------------------------------------------ */
 
 export type RunBlocker = { code: string; message: string; blocksRecording: boolean; blocksApproval: boolean };
 

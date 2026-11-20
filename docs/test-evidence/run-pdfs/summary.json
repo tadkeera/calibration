@@ -3,7 +3,7 @@
     "protocol": "CAL-QC-HPLC-001",
     "equipment": "TEST-FIXTURE-HPLC",
     "tests": 10,
-    "steps": 16,
+    "steps": 9,
     "overall": "INCOMPLETE",
     "counts": {
       "PASS": 0,
@@ -12,15 +12,15 @@
       "NOT APPLICABLE": 0,
       "UNDER REVIEW": 1
     },
-    "pages": 8,
-    "documentId": "RUN-CAL-QC-HPLC-001-20261120-C07C23-V2-1D42D17D",
+    "pages": 9,
+    "documentId": "RUN-CAL-QC-HPLC-001-20261120-2C1D9A-V2-1631BD3D",
     "file": "CAL-QC-HPLC-001.pdf"
   },
   {
     "protocol": "CAL-QC-POL-001",
     "equipment": "QC-I-029",
     "tests": 6,
-    "steps": 12,
+    "steps": 9,
     "overall": "INCOMPLETE",
     "counts": {
       "PASS": 0,
@@ -30,14 +30,14 @@
       "UNDER REVIEW": 0
     },
     "pages": 5,
-    "documentId": "RUN-CAL-QC-POL-001-20261120-69F52A-V2-F4955545",
+    "documentId": "RUN-CAL-QC-POL-001-20261120-25B11B-V2-1DC1546F",
     "file": "CAL-QC-POL-001.pdf"
   },
   {
     "protocol": "CAL-QC-BAL-001",
     "equipment": "QC-I-074",
     "tests": 8,
-    "steps": 14,
+    "steps": 9,
     "overall": "INCOMPLETE",
     "counts": {
       "PASS": 0,
@@ -46,15 +46,15 @@
       "NOT APPLICABLE": 0,
       "UNDER REVIEW": 1
     },
-    "pages": 7,
-    "documentId": "RUN-CAL-QC-BAL-001-20261120-AADB2B-V2-F00C7BFF",
+    "pages": 8,
+    "documentId": "RUN-CAL-QC-BAL-001-20261120-6CD9BC-V2-0960C0B4",
     "file": "CAL-QC-BAL-001.pdf"
   },
   {
     "protocol": "CAL-QC-MOA-001",
     "equipment": "QC-I-023",
     "tests": 6,
-    "steps": 12,
+    "steps": 9,
     "overall": "INCOMPLETE",
     "counts": {
       "PASS": 0,
@@ -63,15 +63,15 @@
       "NOT APPLICABLE": 0,
       "UNDER REVIEW": 0
     },
-    "pages": 4,
-    "documentId": "RUN-CAL-QC-MOA-001-20261120-CF6116-V1-1EA15435",
+    "pages": 5,
+    "documentId": "RUN-CAL-QC-MOA-001-20261120-3BE20E-V1-9A8F5D65",
     "file": "CAL-QC-MOA-001.pdf"
   },
   {
     "protocol": "CAL-QC-DIS-001",
     "equipment": "QC-I-009",
     "tests": 7,
-    "steps": 13,
+    "steps": 9,
     "overall": "INCOMPLETE",
     "counts": {
       "PASS": 0,
@@ -81,14 +81,14 @@
       "UNDER REVIEW": 0
     },
     "pages": 5,
-    "documentId": "RUN-CAL-QC-DIS-001-20261120-F87B4A-V1-A720E10D",
+    "documentId": "RUN-CAL-QC-DIS-001-20261120-F2F7BD-V1-0A95EF46",
     "file": "CAL-QC-DIS-001.pdf"
   },
   {
     "protocol": "CAL-QC-DISINT-001",
     "equipment": "QC-I-008",
     "tests": 7,
-    "steps": 13,
+    "steps": 9,
     "overall": "INCOMPLETE",
     "counts": {
       "PASS": 0,
@@ -97,15 +97,15 @@
       "NOT APPLICABLE": 0,
       "UNDER REVIEW": 0
     },
-    "pages": 4,
-    "documentId": "RUN-CAL-QC-DISINT-001-20261120-06E7DB-V1-13789D6F",
+    "pages": 5,
+    "documentId": "RUN-CAL-QC-DISINT-001-20261120-58C468-V1-AF52A862",
     "file": "CAL-QC-DISINT-001.pdf"
   },
   {
     "protocol": "CAL-QC-REF-001",
     "equipment": "QC-I-030",
     "tests": 6,
-    "steps": 12,
+    "steps": 9,
     "overall": "INCOMPLETE",
     "counts": {
       "PASS": 0,
@@ -115,14 +115,14 @@
       "UNDER REVIEW": 0
     },
     "pages": 5,
-    "documentId": "RUN-CAL-QC-REF-001-20261120-5E4BB6-V1-1BD44104",
+    "documentId": "RUN-CAL-QC-REF-001-20261120-B8FCA8-V1-DA6005D0",
     "file": "CAL-QC-REF-001.pdf"
   },
   {
     "protocol": "CAL-QC-UV-001",
     "equipment": "QC-I-097",
     "tests": 8,
-    "steps": 14,
+    "steps": 9,
     "overall": "INCOMPLETE",
     "counts": {
       "PASS": 0,
@@ -131,8 +131,8 @@
       "NOT APPLICABLE": 0,
       "UNDER REVIEW": 1
     },
-    "pages": 5,
-    "documentId": "RUN-CAL-QC-UV-001-20261120-346D70-V2-C3BDB6A7",
+    "pages": 6,
+    "documentId": "RUN-CAL-QC-UV-001-20261120-A31E0A-V2-29001DF8",
     "file": "CAL-QC-UV-001.pdf"
   }
 ]

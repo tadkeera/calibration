@@ -291,7 +291,7 @@ try {
   await rejects("PG: stale equipment edit rejected (both versions kept)", () => wf.updateEquipmentData(users.author, { instrumentKey: "polarimeter", expectedSpecsRowVersion: pol.specsRowVersion, identity: pol.identity, specs: {}, reason: "stale", reference: "" }), /changed by another user/);
   await rejects("DB: equipment change log append-only", () => q(`delete from protocol_equipment_changes`), /not permitted/);
   const polProtocol = (await wf.runCatalog()).find(c => c.protocolNumber === "CAL-QC-POL-001")!;
-  ok("PG: run catalog has dynamic step count (POL = 12)", polProtocol.stepCount === 12, String(polProtocol.stepCount));
+  ok("PG: run catalog exposes the canonical nine-step workflow for every device", polProtocol.stepCount === 9, String(polProtocol.stepCount));
   const runA = await wf.createRun(users.author, { protocolId: polProtocol.protocolId, instrumentKey: "polarimeter" });
   const saved = await wf.saveRun(users.author, { runId: runA.runId, expectedRowVersion: 1, measurements: { T06: { notApplicable: true, naJustification: "Not used quantitatively" } } });
   ok("PG: run draft saved as version 2", saved.rowVersion === 2);
