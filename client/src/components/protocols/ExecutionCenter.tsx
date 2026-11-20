@@ -4,7 +4,8 @@
  * generated from the revision content; empty inputs are recorded as missing
  * (never zero). The preview uses the same shared engine as the backend, but
  * the stored result is always recalculated server-side against the released
- * snapshot. A calculated PASS is not an approval.
+ * snapshot. A calculated PASS is not an approval: every execution goes
+ * through technical review and QA approval (ExecutionReview.tsx).
  */
 import { useEffect, useMemo, useState } from "react";
 import { FlaskConical, PlayCircle } from "lucide-react";
@@ -12,7 +13,10 @@ import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { CALCULATED_PASS_DISCLAIMER, evaluateExecution, type ExecutionEvaluation, type Measurements, type TestMeasurement } from "@shared/protocols/evaluate";
 import type { ProtocolTest } from "@shared/protocols/model";
+import { EXECUTION_REVIEW_STATUSES, EXECUTION_REVIEW_STATUS_LABELS, type ExecutionDeviation } from "@shared/protocols/executionReview";
+import { intervalText } from "@shared/protocols/schedule";
 import { ErrorBox, Field, Loading, Panel, PendingTag, ResultBadge, errorText, fmtDate, type Nav, type PmUser } from "./common";
+import { DeviationsEditor, ExecutionDetailView, ReviewStatusBadge, SchedulePanel } from "./ExecutionReview";
 
 const NUMERIC_TYPES = ["numeric", "series", "reference-comparison"];
 const expected = (t: ProtocolTest) => Math.max(1, t.readingsRequired || 0);
@@ -35,7 +39,8 @@ export function ExecutionCenter({ user, duties, initialRevisionId, setNav }: { u
   }, [initial.data, equipment.data, instrumentKey]);
 
   const options = trpc.protocols.releasedForEquipment.useQuery({ instrumentKey }, { enabled: !!instrumentKey });
-  const history = trpc.protocols.executions.useQuery({ instrumentKey: instrumentKey || undefined });
+  const [reviewFilter, setReviewFilter] = useState<"" | (typeof EXECUTION_REVIEW_STATUSES)[number]>("");
+  const history = trpc.protocols.executions.useQuery({ instrumentKey: instrumentKey || undefined, reviewStatus: reviewFilter || undefined });
 
   return (
     <div className="pm-grid">
@@ -63,20 +68,26 @@ export function ExecutionCenter({ user, duties, initialRevisionId, setNav }: { u
         {initialRevisionId && initial.data && initial.data.revision.status !== "released" && <div className="pm-alert pm-alert-bad">Revision {initial.data.revision.revisionNumber} is {initial.data.revision.statusLabel} — only RELEASED revisions can be executed.</div>}
       </Panel>
       {revisionId && instrumentKey && options.data?.released.some(o => o.revisionId === revisionId && o.compatible) && (
-        <ExecutionForm key={`${revisionId}:${instrumentKey}`} revisionId={revisionId} instrumentKey={instrumentKey} canExecute={canExecute} setNav={setNav} />
+        <ExecutionForm key={`${revisionId}:${instrumentKey}`} revisionId={revisionId} instrumentKey={instrumentKey} canExecute={canExecute} setNav={setNav} user={user} duties={duties} />
       )}
-      <ExecutionHistory rows={history.data ?? []} loading={history.isLoading} error={history.error} />
+      {instrumentKey && <SchedulePanel setNav={setNav} instrumentKey={instrumentKey} />}
+      <ExecutionHistory rows={history.data ?? []} loading={history.isLoading} error={history.error} user={user} duties={duties} reviewFilter={reviewFilter} setReviewFilter={setReviewFilter} />
     </div>
   );
 }
 
-function ExecutionForm({ revisionId, instrumentKey, canExecute, setNav }: { revisionId: string; instrumentKey: string; canExecute: boolean; setNav: (n: Nav) => void }) {
+function ExecutionForm({ revisionId, instrumentKey, canExecute, setNav, user, duties }: { revisionId: string; instrumentKey: string; canExecute: boolean; setNav: (n: Nav) => void; user: PmUser; duties: readonly string[] }) {
   const utils = trpc.useUtils();
   const rev = trpc.protocols.revision.useQuery({ revisionId });
   const execute = trpc.protocols.execute.useMutation();
+  // Validation records of the same equipment (the server re-checks the equipment match).
+  const records = trpc.records.list.useQuery({ instrumentKey });
   const [m, setM] = useState<Measurements>({});
   const [stage, setStage] = useState("");
   const [comments, setComments] = useState("");
+  const [activityKey, setActivityKey] = useState("");
+  const [validationRecordId, setValidationRecordId] = useState("");
+  const [deviations, setDeviations] = useState<ExecutionDeviation[]>([]);
   const [result, setResult] = useState<{ executionId: string; evaluation: ExecutionEvaluation } | null>(null);
   const content = rev.data?.revision.content;
   const preview = useMemo(() => (content ? evaluateExecution(content, m) : null), [content, m]);
@@ -87,11 +98,13 @@ function ExecutionForm({ revisionId, instrumentKey, canExecute, setNav }: { revi
   const setTest = (key: string, fn: (t: TestMeasurement) => TestMeasurement) => setM(prev => ({ ...prev, [key]: fn(prev[key] ?? {}) }));
 
   const submit = async () => {
-    if (!window.confirm("Record this execution? Measurements are stored with the released protocol snapshot and cannot be edited afterwards.")) return;
+    const incomplete = deviations.findIndex(d => d.description.trim().length < 5);
+    if (incomplete >= 0) return toast.error(`Deviation ${incomplete + 1} needs a description (at least 5 characters)`);
+    if (!window.confirm("Record this execution? Measurements are stored with the released protocol snapshot and cannot be edited afterwards. It will then require technical review and QA approval.")) return;
     try {
-      const res = await execute.mutateAsync({ revisionId, instrumentKey, measurements: m, stage: stage || undefined, comments: comments || undefined });
+      const res = await execute.mutateAsync({ revisionId, instrumentKey, measurements: m, stage: stage || undefined, comments: comments || undefined, activityKey: activityKey || null, validationRecordId: validationRecordId ? Number(validationRecordId) : null, deviations });
       setResult(res);
-      await Promise.all([utils.protocols.executions.invalidate(), utils.protocols.detail.invalidate()]);
+      await Promise.all([utils.protocols.executions.invalidate(), utils.protocols.detail.invalidate(), utils.protocols.schedule.invalidate(), utils.protocols.dashboard.invalidate()]);
       toast.success(`Execution recorded — calculated result: ${res.evaluation.overall}`);
     } catch (e) {
       toast.error(`Not recorded — your entries are preserved. ${errorText(e)}`);
@@ -100,8 +113,9 @@ function ExecutionForm({ revisionId, instrumentKey, canExecute, setNav }: { revi
 
   if (result) {
     return (
-      <Panel title={<>Execution recorded <ResultBadge result={result.evaluation.overall} /></>} actions={<><button type="button" className="pm-btn" onClick={() => setNav({ view: "detail", protocolId: r.protocol.id, tab: "executions" })}>Open protocol executions</button><button type="button" className="pm-btn" onClick={() => { setResult(null); setM({}); }}>New execution</button></>}>
-        <EvaluationView evaluation={result.evaluation} />
+      <Panel title={<>Execution recorded <ResultBadge result={result.evaluation.overall} /></>} actions={<><button type="button" className="pm-btn" onClick={() => setNav({ view: "detail", protocolId: r.protocol.id, tab: "executions" })}>Open protocol executions</button><button type="button" className="pm-btn" onClick={() => { setResult(null); setM({}); setDeviations([]); setActivityKey(""); setValidationRecordId(""); }}>New execution</button></>}>
+        <div className="pm-alert pm-alert-info">Attach the supporting evidence (printouts, certificates, raw data) below. The execution now awaits technical review and QA approval.</div>
+        <ExecutionDetailView executionId={result.executionId} user={user} duties={duties} />
       </Panel>
     );
   }
@@ -113,8 +127,23 @@ function ExecutionForm({ revisionId, instrumentKey, canExecute, setNav }: { revi
           <div className="pm-grid c2">
             <Field label="Stage"><select value={stage} onChange={e => setStage(e.target.value)}><option value="">All applicable</option>{content.stages.map(s => <option key={s}>{s}</option>)}</select></Field>
             <Field label="Execution comments"><input value={comments} onChange={e => setComments(e.target.value)} /></Field>
+            <Field label="Interval activity performed" hint="Selecting the activity updates its next due date (only a PASS that is not rejected resets the schedule).">
+              <select value={activityKey} onChange={e => setActivityKey(e.target.value)}>
+                <option value="">— not linked to an interval activity —</option>
+                {content.intervals.map(i => <option key={i.key} value={i.key}>{i.activity} ({intervalText(i)})</option>)}
+              </select>
+            </Field>
+            <Field label="Linked validation record (same equipment)" hint={records.error ? `Records unavailable: ${errorText(records.error)}` : "Optional link to the existing qualification / validation record."}>
+              <select value={validationRecordId} disabled={records.isLoading} onChange={e => setValidationRecordId(e.target.value)}>
+                <option value="">— none —</option>
+                {(records.data ?? []).filter(x => x.instrumentKey === instrumentKey).map(x => <option key={x.id} value={x.id}>#{x.id} · {fmtDate(String(x.createdAt))} · {String(x.resultStatus).toUpperCase()} · {String(x.lifecycleStatus)}</option>)}
+              </select>
+            </Field>
           </div>
           <p className="pm-muted">Leave a value empty if it was not measured — empty values are recorded as missing, never as zero.</p>
+        </Panel>
+        <Panel title={`Deviations (${deviations.length})`}>
+          <DeviationsEditor value={deviations} onChange={setDeviations} />
         </Panel>
         {content.sections.filter(s => s.tests.length && (!stage || !s.stage || s.stage === stage)).map(s => (
           <Panel key={s.key} title={s.title}>
@@ -225,20 +254,27 @@ export function EvaluationView({ evaluation }: { evaluation: ExecutionEvaluation
   );
 }
 
-function ExecutionHistory({ rows, loading, error }: { rows: Array<{ id: string; protocolNumber?: string; revisionNumber: number; equipmentId: string | null; overallResult: string; executedByName: string | null; executedAt: string; engineVersion: string }>; loading: boolean; error: unknown }) {
+function ExecutionHistory({ rows, loading, error, user, duties, reviewFilter, setReviewFilter }: { rows: Array<{ id: string; protocolNumber?: string; revisionNumber: number; equipmentId: string | null; overallResult: string; executedByName: string | null; executedAt: string; engineVersion: string; reviewStatus: string; activityName: string | null }>; loading: boolean; error: unknown; user: PmUser; duties: readonly string[]; reviewFilter: string; setReviewFilter: (v: "" | (typeof EXECUTION_REVIEW_STATUSES)[number]) => void }) {
   const [open, setOpen] = useState<string | null>(null);
-  const detail = trpc.protocols.execution.useQuery({ executionId: open ?? "" }, { enabled: !!open });
   return (
-    <Panel title="Execution history">
+    <Panel
+      title="Execution history"
+      actions={
+        <select value={reviewFilter} onChange={e => setReviewFilter(e.target.value as "" | (typeof EXECUTION_REVIEW_STATUSES)[number])} aria-label="Filter by review status">
+          <option value="">All review states</option>
+          {EXECUTION_REVIEW_STATUSES.map(s => <option key={s} value={s}>{EXECUTION_REVIEW_STATUS_LABELS[s]}</option>)}
+        </select>
+      }
+    >
       {loading ? <Loading /> : error ? <ErrorBox error={error} /> : !rows.length ? <div className="pm-empty">No executions recorded.</div> : (
         <div className="pm-table-wrap">
           <table className="pm-table">
-            <thead><tr><th>Executed</th><th>Protocol</th><th>Equipment</th><th>Calculated result</th><th>By</th><th>Engine</th></tr></thead>
-            <tbody>{rows.map(e => <tr key={e.id} className="is-click" onClick={() => setOpen(open === e.id ? null : e.id)}><td>{fmtDate(e.executedAt, true)}</td><td>{e.protocolNumber} rev {e.revisionNumber}</td><td>{e.equipmentId ?? "—"}</td><td><ResultBadge result={e.overallResult} /></td><td>{e.executedByName ?? "—"}</td><td>{e.engineVersion}</td></tr>)}</tbody>
+            <thead><tr><th>Executed</th><th>Protocol</th><th>Equipment</th><th>Activity</th><th>Calculated result</th><th>Review</th><th>By</th><th>Engine</th></tr></thead>
+            <tbody>{rows.map(e => <tr key={e.id} className={`is-click${open === e.id ? " is-active" : ""}`} onClick={() => setOpen(open === e.id ? null : e.id)}><td>{fmtDate(e.executedAt, true)}</td><td>{e.protocolNumber} rev {e.revisionNumber}</td><td>{e.equipmentId ?? "—"}</td><td>{e.activityName ?? "—"}</td><td><ResultBadge result={e.overallResult} /></td><td><ReviewStatusBadge status={e.reviewStatus} /></td><td>{e.executedByName ?? "—"}</td><td>{e.engineVersion}</td></tr>)}</tbody>
           </table>
         </div>
       )}
-      {open && (detail.isLoading ? <Loading /> : detail.data ? <div style={{ marginTop: 12 }}><div className="pm-muted">Content hash {detail.data.contentHash.slice(0, 16)}… · S/N {detail.data.serialNumber ?? "—"}{detail.data.comments ? ` · ${detail.data.comments}` : ""}</div><EvaluationView evaluation={detail.data.evaluation} /></div> : <ErrorBox error={detail.error} />)}
+      {open && <ExecutionDetailView key={open} executionId={open} user={user} duties={duties} />}
     </Panel>
   );
 }

@@ -12,11 +12,12 @@ import { ADP220_PROTOCOL_NUMBER } from "../shared/protocols/adp220";
 import { PENDING_LABEL, allCriteria, type ProtocolContentInput } from "../shared/protocols/model";
 
 const testDatabase = "/tmp/miayar-protocols.test.sqlite";
+const PW = "protocol-test-password-1";
 let admin: svc.Actor, author: svc.Actor, tech: svc.Actor, qa: svc.Actor, viewer: svc.Actor, other: svc.Actor;
 
 async function user(email: string, name: string, role: "admin" | "user" | "viewer"): Promise<svc.Actor> {
   const u = await createLocalUser({ email, password: "protocol-test-password-1", name, role });
-  return { id: u.id, name: u.name, role };
+  return { id: u.id, name: u.name, role, email };
 }
 
 const errorOf = async (p: Promise<unknown>) => {
@@ -121,29 +122,29 @@ describe("protocol management service (SQLite store)", () => {
   });
 
   it("enforces segregation of duties and the full review → approval → release workflow", async () => {
-    await svc.transition(author, { revisionId, expectedRowVersion: await rv(), action: "submit-technical-review" });
+    await svc.transition(author, { password: PW, revisionId, expectedRowVersion: await rv(), action: "submit-technical-review" });
     // duplicate submission with the stale version is rejected
-    expect((await errorOf(svc.transition(author, { revisionId, expectedRowVersion: 2, action: "submit-technical-review" }))).code).toBe("PRECONDITION_FAILED");
+    expect((await errorOf(svc.transition(author, { password: PW, revisionId, expectedRowVersion: 2, action: "submit-technical-review" }))).code).toBe("PRECONDITION_FAILED");
     // the author cannot review their own revision
-    expect((await errorOf(svc.transition(author, { revisionId, expectedRowVersion: await rv(), action: "start-technical-review" }))).message).toMatch(/Segregation of duties/);
+    expect((await errorOf(svc.transition(author, { password: PW, revisionId, expectedRowVersion: await rv(), action: "start-technical-review" }))).message).toMatch(/Segregation of duties/);
     // drafts under review cannot be edited
     expect((await errorOf(svc.saveDraft(author, { revisionId, expectedRowVersion: await rv(), content: genericContent(), reason: "edit" }))).code).toBe("PRECONDITION_FAILED");
-    await svc.transition(tech, { revisionId, expectedRowVersion: await rv(), action: "start-technical-review" });
-    expect((await errorOf(svc.transition(other, { revisionId, expectedRowVersion: await rv(), action: "complete-technical-review", attestation: true, comment: "Technical review complete" }))).message).toMatch(/Only the technical specialist/);
-    expect((await errorOf(svc.transition(tech, { revisionId, expectedRowVersion: await rv(), action: "complete-technical-review", comment: "Reviewed" }))).message).toMatch(/attestation/);
-    await svc.transition(tech, { revisionId, expectedRowVersion: await rv(), action: "complete-technical-review", attestation: true, comment: "Technical review complete" });
-    await svc.transition(author, { revisionId, expectedRowVersion: await rv(), action: "submit-qa-review" });
-    expect((await errorOf(svc.transition(tech, { revisionId, expectedRowVersion: await rv(), action: "start-qa-review" }))).message).toMatch(/requires the qa-approver duty|Segregation/);
-    await svc.transition(qa, { revisionId, expectedRowVersion: await rv(), action: "start-qa-review" });
-    expect((await errorOf(svc.transition(qa, { revisionId, expectedRowVersion: await rv(), action: "qa-approve", attestation: true }))).message).toMatch(/requires a comment/);
-    await svc.transition(qa, { revisionId, expectedRowVersion: await rv(), action: "qa-approve", attestation: true, comment: "Approved after review" });
+    await svc.transition(tech, { password: PW, revisionId, expectedRowVersion: await rv(), action: "start-technical-review" });
+    expect((await errorOf(svc.transition(other, { password: PW, revisionId, expectedRowVersion: await rv(), action: "complete-technical-review", attestation: true, comment: "Technical review complete" }))).message).toMatch(/Only the technical specialist/);
+    expect((await errorOf(svc.transition(tech, { password: PW, revisionId, expectedRowVersion: await rv(), action: "complete-technical-review", comment: "Reviewed" }))).message).toMatch(/attestation/);
+    await svc.transition(tech, { password: PW, revisionId, expectedRowVersion: await rv(), action: "complete-technical-review", attestation: true, comment: "Technical review complete" });
+    await svc.transition(author, { password: PW, revisionId, expectedRowVersion: await rv(), action: "submit-qa-review" });
+    expect((await errorOf(svc.transition(tech, { password: PW, revisionId, expectedRowVersion: await rv(), action: "start-qa-review" }))).message).toMatch(/requires the qa-approver duty|Segregation/);
+    await svc.transition(qa, { password: PW, revisionId, expectedRowVersion: await rv(), action: "start-qa-review" });
+    expect((await errorOf(svc.transition(qa, { password: PW, revisionId, expectedRowVersion: await rv(), action: "qa-approve", attestation: true }))).message).toMatch(/requires a comment/);
+    await svc.transition(qa, { password: PW, revisionId, expectedRowVersion: await rv(), action: "qa-approve", attestation: true, comment: "Approved after review" });
     const approved = await svc.getRevision(admin, revisionId);
     expect(approved.revision.status).toBe("approved");
     expect(approved.revision.locked).toBe(true);
     // approved-but-not-released cannot be executed
     expect((await errorOf(svc.executeProtocol(author, { revisionId, instrumentKey: "polarimeter", measurements: {} }))).message).toMatch(/Only RELEASED/);
-    expect((await errorOf(svc.transition(qa, { revisionId, expectedRowVersion: await rv(), action: "release" }))).message).toMatch(/effective date/);
-    await svc.transition(qa, { revisionId, expectedRowVersion: await rv(), action: "release", effectiveDate: new Date().toISOString().slice(0, 10) });
+    expect((await errorOf(svc.transition(qa, { password: PW, revisionId, expectedRowVersion: await rv(), action: "release" }))).message).toMatch(/effective date/);
+    await svc.transition(qa, { password: PW, revisionId, expectedRowVersion: await rv(), action: "release", effectiveDate: new Date().toISOString().slice(0, 10) });
     const detail = await svc.getProtocolDetail(protocolId);
     expect(detail.protocol.status).toBe("released");
     expect(detail.revisions[0].nextReviewDate).toBeTruthy();
@@ -166,7 +167,7 @@ describe("protocol management service (SQLite store)", () => {
     const res = await svc.executeProtocol(author, { revisionId, instrumentKey: "polarimeter", measurements: { acc: { readings: [10.01, 10.0, 10.02], reference: 10 } } });
     expect(res.evaluation.overall).toBe("PASS");
     expect(res.evaluation.disclaimer).toMatch(/not an approval/);
-    const stored = await svc.getExecution(res.executionId);
+    const stored = await svc.getExecution(admin, res.executionId);
     expect(stored.protocolSnapshot.identification.number).toBe("GEN-POL-001");
     expect(stored.contentHash).toBeTruthy();
     expect((await errorOf(svc.executeProtocol(viewer, { revisionId, instrumentKey: "polarimeter", measurements: {} }))).code).toBe("FORBIDDEN");
@@ -197,7 +198,7 @@ describe("protocol management service (SQLite store)", () => {
     expect(reopenedAgain.revision.content.sections[0].tests[1].readingsRequired).toBe(5);
     // earlier executions keep their original measurements and protocol snapshot (rev 1)
     const [execSummary] = await svc.listExecutions({ protocolId });
-    const exec = await svc.getExecution(execSummary.id);
+    const exec = await svc.getExecution(admin, execSummary.id);
     expect(exec.revisionNumber).toBe(1);
     expect(exec.measurements).toEqual({ acc: { readings: [10.01, 10.0, 10.02], reference: 10 } });
     expect(exec.protocolSnapshot.sections[0].tests.map(t => t.key)).toEqual(["acc"]);
@@ -250,15 +251,15 @@ describe("protocol management service (SQLite store)", () => {
     const draft = (await svc.getRevision(admin, revId)).revision.content;
     draft.gaps[0].assessment = "Instrument accuracy specification (±0.02°) is wider than the USP <781> tolerance (±0.01°); suitability must be demonstrated.";
     await svc.saveDraft(author, { revisionId: revId, expectedRowVersion: await ver(), content: draft, reason: "Document gap assessment" });
-    await svc.transition(author, { revisionId: revId, expectedRowVersion: await ver(), action: "submit-technical-review" });
-    await svc.transition(tech, { revisionId: revId, expectedRowVersion: await ver(), action: "start-technical-review" });
-    expect((await errorOf(svc.transition(tech, { revisionId: revId, expectedRowVersion: await ver(), action: "complete-technical-review", attestation: true, comment: "Technical review complete" }))).message).toMatch(/gap/i);
+    await svc.transition(author, { password: PW, revisionId: revId, expectedRowVersion: await ver(), action: "submit-technical-review" });
+    await svc.transition(tech, { password: PW, revisionId: revId, expectedRowVersion: await ver(), action: "start-technical-review" });
+    expect((await errorOf(svc.transition(tech, { password: PW, revisionId: revId, expectedRowVersion: await ver(), action: "complete-technical-review", attestation: true, comment: "Technical review complete" }))).message).toMatch(/gap/i);
     const rev = await svc.getRevision(admin, revId);
     await svc.recordGapDecision(tech, { revisionId: revId, gapKey: rev.revision.content.gaps[0].key, decision: "additional-evidence-required", rationale: "Instrument specification exceeds the USP tolerance; evidence needed" });
-    await svc.transition(tech, { revisionId: revId, expectedRowVersion: await ver(), action: "complete-technical-review", attestation: true, comment: "Technical review complete" });
-    await svc.transition(author, { revisionId: revId, expectedRowVersion: await ver(), action: "submit-qa-review" });
-    await svc.transition(qa, { revisionId: revId, expectedRowVersion: await ver(), action: "start-qa-review" });
-    const blocked = await errorOf(svc.transition(qa, { revisionId: revId, expectedRowVersion: await ver(), action: "qa-approve", attestation: true, comment: "try" }));
+    await svc.transition(tech, { password: PW, revisionId: revId, expectedRowVersion: await ver(), action: "complete-technical-review", attestation: true, comment: "Technical review complete" });
+    await svc.transition(author, { password: PW, revisionId: revId, expectedRowVersion: await ver(), action: "submit-qa-review" });
+    await svc.transition(qa, { password: PW, revisionId: revId, expectedRowVersion: await ver(), action: "start-qa-review" });
+    const blocked = await errorOf(svc.transition(qa, { password: PW, revisionId: revId, expectedRowVersion: await ver(), action: "qa-approve", attestation: true, comment: "try" }));
     expect(blocked.message).toMatch(/QA approval is blocked/);
     expect(JSON.stringify(blocked.details)).toMatch(/PENDING TECHNICAL VERIFICATION/);
     expect(JSON.stringify(blocked.details)).toMatch(/does not permit approval/);
@@ -278,30 +279,30 @@ describe("protocol management service (SQLite store)", () => {
     const created = await svc.createProtocol(author, { content: genericContent("GEN-POL-003"), reason: "Correction cycle test" });
     const rid = created.revisionId;
     const ver = async () => (await svc.getRevision(admin, rid)).revision.rowVersion;
-    await svc.transition(author, { revisionId: rid, expectedRowVersion: await ver(), action: "submit-technical-review" });
+    await svc.transition(author, { password: PW, revisionId: rid, expectedRowVersion: await ver(), action: "submit-technical-review" });
     // technical reviewers are notified; the viewer (no duties) is not
     expect((await svc.listNotifications(tech)).some(n => n.revisionId === rid)).toBe(true);
     expect((await svc.listNotifications(viewer)).some(n => n.revisionId === rid)).toBe(false);
-    await svc.transition(tech, { revisionId: rid, expectedRowVersion: await ver(), action: "start-technical-review" });
-    expect((await errorOf(svc.transition(tech, { revisionId: rid, expectedRowVersion: await ver(), action: "request-technical-changes" }))).message).toMatch(/comment/i);
-    await svc.transition(tech, { revisionId: rid, expectedRowVersion: await ver(), action: "request-technical-changes", comment: "Add the replicate count to the accuracy test" });
+    await svc.transition(tech, { password: PW, revisionId: rid, expectedRowVersion: await ver(), action: "start-technical-review" });
+    expect((await errorOf(svc.transition(tech, { password: PW, revisionId: rid, expectedRowVersion: await ver(), action: "request-technical-changes" }))).message).toMatch(/comment/i);
+    await svc.transition(tech, { password: PW, revisionId: rid, expectedRowVersion: await ver(), action: "request-technical-changes", comment: "Add the replicate count to the accuracy test" });
     expect((await svc.getRevision(admin, rid)).revision.status).toBe("technical-changes-required");
     // the author is notified and can edit again
     expect((await svc.listNotifications(author)).some(n => n.revisionId === rid)).toBe(true);
     const content = genericContent("GEN-POL-003");
     content.sections![0].tests![0].replicates = 2;
     await svc.saveDraft(author, { revisionId: rid, expectedRowVersion: await ver(), content, reason: "Address technical review comment" });
-    await svc.transition(author, { revisionId: rid, expectedRowVersion: await ver(), action: "submit-technical-review" });
-    await svc.transition(tech, { revisionId: rid, expectedRowVersion: await ver(), action: "start-technical-review" });
-    await svc.transition(tech, { revisionId: rid, expectedRowVersion: await ver(), action: "complete-technical-review", attestation: true, comment: "Correction verified" });
-    await svc.transition(author, { revisionId: rid, expectedRowVersion: await ver(), action: "submit-qa-review" });
-    await svc.transition(qa, { revisionId: rid, expectedRowVersion: await ver(), action: "start-qa-review" });
-    await svc.transition(qa, { revisionId: rid, expectedRowVersion: await ver(), action: "qa-approve", attestation: true, comment: "Approved after correction" });
-    await svc.transition(qa, { revisionId: rid, expectedRowVersion: await ver(), action: "release", effectiveDate: new Date().toISOString().slice(0, 10) });
+    await svc.transition(author, { password: PW, revisionId: rid, expectedRowVersion: await ver(), action: "submit-technical-review" });
+    await svc.transition(tech, { password: PW, revisionId: rid, expectedRowVersion: await ver(), action: "start-technical-review" });
+    await svc.transition(tech, { password: PW, revisionId: rid, expectedRowVersion: await ver(), action: "complete-technical-review", attestation: true, comment: "Correction verified" });
+    await svc.transition(author, { password: PW, revisionId: rid, expectedRowVersion: await ver(), action: "submit-qa-review" });
+    await svc.transition(qa, { password: PW, revisionId: rid, expectedRowVersion: await ver(), action: "start-qa-review" });
+    await svc.transition(qa, { password: PW, revisionId: rid, expectedRowVersion: await ver(), action: "qa-approve", attestation: true, comment: "Approved after correction" });
+    await svc.transition(qa, { password: PW, revisionId: rid, expectedRowVersion: await ver(), action: "release", effectiveDate: new Date().toISOString().slice(0, 10) });
     // a non-releaser cannot retire; retirement needs a reason
-    expect((await errorOf(svc.transition(tech, { revisionId: rid, expectedRowVersion: await ver(), action: "retire", comment: "Equipment decommissioned" }))).code).toBe("FORBIDDEN");
-    expect((await errorOf(svc.transition(qa, { revisionId: rid, expectedRowVersion: await ver(), action: "retire" }))).message).toMatch(/comment/i);
-    await svc.transition(qa, { revisionId: rid, expectedRowVersion: await ver(), action: "retire", comment: "Equipment decommissioned" });
+    expect((await errorOf(svc.transition(tech, { password: PW, revisionId: rid, expectedRowVersion: await ver(), action: "retire", comment: "Equipment decommissioned" }))).code).toBe("FORBIDDEN");
+    expect((await errorOf(svc.transition(qa, { password: PW, revisionId: rid, expectedRowVersion: await ver(), action: "retire" }))).message).toMatch(/comment/i);
+    await svc.transition(qa, { password: PW, revisionId: rid, expectedRowVersion: await ver(), action: "retire", comment: "Equipment decommissioned" });
     expect((await svc.getRevision(admin, rid)).revision.status).toBe("retired");
     // retired revisions cannot be executed and the history stays accessible
     expect((await errorOf(svc.executeProtocol(author, { revisionId: rid, instrumentKey: "polarimeter", measurements: {} }))).message).toMatch(/Only RELEASED/);

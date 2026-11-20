@@ -1,6 +1,6 @@
 /** SQLite implementation of the protocol store (offline / desktop mode). */
 // localDb is imported lazily: node:sqlite must never load in Supabase/serverless mode.
-import { SQLITE_PROTOCOL_DDL, SQLITE_PROTOCOL_GUARDS } from "./sqliteSchema";
+import { SQLITE_PROTOCOL_ADDED_COLUMNS, SQLITE_PROTOCOL_DDL, SQLITE_PROTOCOL_GUARDS, SQLITE_PROTOCOL_POST_UPGRADE } from "./sqliteSchema";
 import {
   PROTOCOL_TABLES,
   PROTOCOL_TABLE_NAMES,
@@ -22,6 +22,11 @@ async function connection() {
   const conn = localConnection();
   if (ensuredFor !== conn) {
     conn.exec(SQLITE_PROTOCOL_DDL);
+    SQLITE_PROTOCOL_ADDED_COLUMNS.forEach(({ table, column, ddl }) => {
+      const present = (conn.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).some(c => c.name === column);
+      if (!present) conn.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+    });
+    conn.exec(SQLITE_PROTOCOL_POST_UPGRADE);
     conn.exec(SQLITE_PROTOCOL_GUARDS);
     ensuredFor = conn;
   }

@@ -15,6 +15,7 @@ import { ProtocolBuilder } from "./ProtocolBuilder";
 import { ReferenceLibrary } from "./ReferenceLibrary";
 import { ReviewCenter } from "./ReviewCenter";
 import { ExecutionCenter } from "./ExecutionCenter";
+import { SchedulePanel } from "./ExecutionReview";
 import { ModuleSettings } from "./ModuleSettings";
 import "./protocols.css";
 
@@ -150,13 +151,21 @@ function Dashboard({ setNav }: { setNav: (n: Nav) => void }) {
         {tile("Pending technical verification", s.pendingVerification, reg(undefined, "pending-verification"), "warn")}
         {tile("Open technical gaps", s.openGaps, reg(undefined, "open-gaps"), "bad")}
         {tile("Flagged for review", s.reviewFlagged, reg(undefined, "review-flag"), "warn")}
+        {tile("Activities overdue", s.activitiesOverdue, { view: "executions" }, "bad")}
+        {tile("Activities due ≤ 30 days", s.activitiesDueSoon, { view: "executions" }, "warn")}
+        {tile("Executions awaiting technical review", s.executionsAwaitingReview, { view: "executions" }, "warn")}
+        {tile("Executions awaiting QA approval", s.executionsAwaitingApproval, { view: "executions" }, "warn")}
       </div>
+      <SchedulePanel setNav={setNav} limit={8} />
       <div className="pm-grid c2">
         <Panel title="Recently created">
           <MiniList items={d.recentlyCreated.map(r => ({ key: r.id, label: `${r.protocolNumber} — ${r.title}`, meta: fmtDate(r.createdAt), badge: r.status, open: () => setNav({ view: "detail", protocolId: r.id }) }))} />
         </Panel>
         <Panel title="Upcoming periodic reviews">
           <MiniList items={d.upcomingReviews.map(r => ({ key: r.id, label: r.protocolNumber, meta: `${r.overdue ? "OVERDUE · " : ""}${fmtDate(r.nextReviewDate)}`, open: () => setNav({ view: "detail", protocolId: r.id }) }))} />
+        </Panel>
+        <Panel title="Executions awaiting a decision">
+          <MiniList items={d.executionsPendingDecision.map(e => ({ key: e.id, label: `${e.protocolNumber} rev ${e.revisionNumber} · ${e.equipmentId ?? e.instrumentKey}`, meta: `${e.reviewStatusLabel} · calculated ${e.overallResult} · ${fmtDate(e.executedAt)}`, open: () => setNav(e.protocolId ? { view: "detail", protocolId: e.protocolId, tab: "executions" } : { view: "executions" }) }))} />
         </Panel>
         <Panel title="Recently approved">
           <MiniList items={d.recentlyApproved.map(r => ({ key: `${r.protocolId}-${r.at}`, label: `${r.protocolNumber} rev ${r.revisionNumber}`, meta: `${r.actorName ?? ""} · ${fmtDate(r.at)}`, open: () => setNav({ view: "detail", protocolId: r.protocolId }) }))} />

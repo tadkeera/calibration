@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { REFERENCE_TYPES, REFERENCE_VERIFICATION_STATUSES, type ReferenceType, type ReferenceVerificationStatus } from "@shared/protocols/model";
 import { ErrorBox, Field, Loading, Panel, askReason, errorText, fmtDate, type ReferenceRowDto } from "./common";
+import { AttachmentsPanel } from "./ExecutionReview";
 
 type Form = {
   id?: string;
@@ -42,6 +43,7 @@ export function ReferenceLibrary({ duties }: { duties: readonly string[] }) {
   const [type, setType] = useState("");
   const [status, setStatus] = useState("");
   const [form, setForm] = useState<Form | null>(null);
+  const [docsFor, setDocsFor] = useState<ReferenceRowDto | null>(null);
   const canEdit = duties.some(d => d === "author" || d === "technical-reviewer" || d === "qa-approver");
 
   const rows = useMemo(() => {
@@ -82,7 +84,7 @@ export function ReferenceLibrary({ duties }: { duties: readonly string[] }) {
                     <td>{r.expiryDate || "—"}{r.reviewDate && <div className="pm-muted">review {r.reviewDate}</div>}</td>
                     <td><span className={`pm-badge ${r.expired ? "pm-tone-bad" : r.verificationStatus === "verified" ? "pm-tone-ok" : "pm-tone-warn"}`}>{r.expired ? "expired" : r.verificationStatus}</span>{r.verifiedByName && <div className="pm-muted">by {r.verifiedByName}</div>}</td>
                     <td>{r.usedByProtocolCount} protocol(s)</td>
-                    <td>{canEdit && <button type="button" className="pm-btn small" onClick={() => setForm(toForm(r))}>Edit</button>}</td>
+                    <td><div className="pm-row" style={{ flexWrap: "nowrap" }}><button type="button" className="pm-btn small" onClick={() => setDocsFor(docsFor?.id === r.id ? null : r)}>Files</button>{canEdit && <button type="button" className="pm-btn small" onClick={() => setForm(toForm(r))}>Edit</button>}</div></td>
                   </tr>
                 ))}
               </tbody>
@@ -91,6 +93,7 @@ export function ReferenceLibrary({ duties }: { duties: readonly string[] }) {
         )}
       </Panel>
       {form && <ReferenceForm form={form} setForm={setForm} />}
+      {docsFor && <AttachmentsPanel key={docsFor.id} entityType="reference" entityId={docsFor.id} canUpload={canEdit} title={`Controlled copies — ${docsFor.code}`} note="Upload a controlled copy or extract of the reference document. Files are stored unchanged with a SHA-256 and cannot be edited or deleted; a new edition is recorded by editing the reference and uploading the new file." />}
     </div>
   );
 }
