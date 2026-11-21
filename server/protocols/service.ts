@@ -9,6 +9,7 @@ import { getValidationRecordById, listInstrumentProfiles, localLogin } from "../
 import { adp220DraftContent, ADP220_EXPECTED_EQUIPMENT, ADP220_PROTOCOL_NUMBER, ADP220_REFERENCES, remapReferencePlaceholders } from "../../shared/protocols/adp220";
 import { compareContents, type DiffEntry } from "../../shared/protocols/compare";
 import { evaluateExecution, type Measurements } from "../../shared/protocols/evaluate";
+import { naMeasurementKey } from "../../shared/protocols/runWorkflow";
 import {
   EDITABLE_STATUSES,
   STATUS_LABELS,
@@ -1046,7 +1047,9 @@ export async function prepareExecution(actor: Actor, input: ExecuteInput) {
   const deviations = (input.deviations ?? []).map(d => ({ description: d.description.trim(), impact: d.impact.trim(), immediateAction: d.immediateAction.trim(), reference: d.reference.trim() }));
   if (deviations.some(d => d.description.length < 5)) throw new ProtocolError("BAD_REQUEST", "Each deviation needs a description (at least 5 characters)");
   const knownTests = new Set(revision.content.sections.flatMap(s => s.tests.map(t => t.key)));
-  const unknown = Object.keys(input.measurements).filter(k => !knownTests.has(k));
+  // Reserved keys document an intentionally Not-Applicable canonical workflow step.
+  const reservedNa = new Set(["accuracy", "repeatability", "linearity"].map(naMeasurementKey));
+  const unknown = Object.keys(input.measurements).filter(k => !knownTests.has(k) && !reservedNa.has(k));
   if (unknown.length) throw new ProtocolError("BAD_REQUEST", "Measurements reference tests that are not part of this revision", unknown);
   const evaluation = evaluateExecution(revision.content, input.measurements);
   const t = now();

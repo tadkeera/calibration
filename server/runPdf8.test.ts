@@ -73,10 +73,11 @@ describe("8 protocols → calibration runs → PDF reports", () => {
       if (Object.keys(fixture).length) await wf.saveRun(author, { runId, expectedRowVersion: 1, measurements: fixture, currentStep: "results" });
       const d = await wf.getRun(author, runId);
 
-      // dynamic steps: 6 frame steps + one per test of THIS protocol
+      // canonical nine-step workflow for EVERY device; each protocol test is mapped once
       const tests = d.content.sections.flatMap(s => s.tests).length;
-      expect(d.steps.length).toBe(tests + 6);
-      expect(d.steps.filter(s => s.kind === "test").map(s => s.testKey)).toEqual(d.content.sections.flatMap(s => s.tests.map(t => t.key)));
+      expect(d.steps.length).toBe(9);
+      expect(d.steps.map(s => s.key)).toEqual(["equipment", "protocol", "accuracy", "repeatability", "linearity", "results", "review", "approval", "pdf"]);
+      expect(d.steps.flatMap(s => s.testKeys).sort()).toEqual(d.content.sections.flatMap(s => s.tests.map(t => t.key)).sort());
       // loading/executing never implies PASS; pending criteria block approval
       expect(d.evaluation.overall).not.toBe("PASS");
       expect(d.blockers.some(b => b.code === "pending-verification" && b.blocksApproval)).toBe(true);
@@ -109,7 +110,7 @@ describe("8 protocols → calibration runs → PDF reports", () => {
       summary.push({ protocol: p.number, equipment: equipment.instrumentId, tests, steps: d.steps.length, overall: d.evaluation.overall, counts: d.evaluation.counts, pages, documentId, file });
     }
     writeFileSync(path.join(OUT, "summary.json"), JSON.stringify(summary, null, 2) + "\n");
-    expect(summary.map(s => s.steps)).toEqual([16, 12, 15, 12, 13, 13, 12, 14]);
+    expect(summary.map(s => s.steps)).toEqual([9, 9, 9, 9, 9, 9, 9, 9]);
     // audit: one run.pdf entry per protocol
     const audit = await sqliteProtocolStore.select<{ action: string }>("protocol_audit_events", { where: { action: "run.pdf-generated" } });
     expect(audit.length).toBe(8);

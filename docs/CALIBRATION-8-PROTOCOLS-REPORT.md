@@ -10,7 +10,7 @@ The baseline is the package the user uploaded to `docs/`: the protocol ZIP, `Cal
 |---|---|
 | 1. Inspect the system against the requirements | `docs/EIGHT-PROTOCOLS-INVENTORY.md`: register, criteria with their sources, step counts and 10 documented conflicts (H1–H4, P1, B1, B2, M1, U1, X1). |
 | 2. Read and import the 8 protocols | `shared/protocols/package8.ts` holds the 8 protocols as structured content. The **Import 8 protocols** button (Protocol Management → Create Protocol) creates them as DRAFT revisions through `importCalibrationPackage`. The import is idempotent and leaves every criterion PENDING TECHNICAL VERIFICATION. |
-| 3. One workflow, but each device keeps its own tests | **Calibration Runs** tab. The steps come from the protocol snapshot: Equipment → Protocol → one step per protocol test → Results → Review → Approval → PDF. This gives HPLC 16, BAL 15, UV 14, DIS 13, DISINT 13, POL 12, REF 12 and MOA 12 steps. The count is not fixed at nine. |
+| 3. One nine-step workflow, each device keeps its own tests | **Calibration Runs** tab. All eight devices use the canonical nine controlled steps: Equipment Selection → Protocol → Accuracy → Repeatability → Linearity → Results → Review → Approval → PDF. The protocol snapshot supplies the device-specific tests: they are mapped into the three common test steps and every remaining test stays in Results as a labelled sub-test. No test or acceptance limit is changed. |
 | 4. Page «تعديل بيانات ومواصفات الأجهزة» | A new item in the main navigation (`EquipmentDataPage.tsx`) with the exact title. It covers identity, typed and unit-aware specification groups per equipment type, change history, linked protocols, runs, registering new equipment and retiring equipment. Equipment is never deleted. |
 | 5. Link equipment to protocols automatically | Import links 7 protocols to their registered equipment. The balance QC-I-074 is registered if missing. HPLC is **not** linked, because LC-2030 PLUS ≠ QC-I-104 (conflict H2). Equipment edits update linked unapproved drafts automatically, with an audit entry. Approved protocols are flagged for a new revision. |
 | 6. Keep history and prevent conflicts | Equipment edits use optimistic versioning, a mandatory reason for critical fields and a field-level change log that cannot be altered (enforced by DB triggers). Every run save is a new version kept in `protocol_run_snapshots`. If two users save the same run, the second save fails with `DRAFT_CONFLICT`. The user then sees a per-test compare/merge screen, both versions are kept, and the merge is saved with its reason. Open runs keep their equipment snapshot and show a "newer equipment data" notice. |
@@ -76,7 +76,7 @@ For the HPLC run, the test registered a clearly labelled instrument, `TEST-FIXTU
 |---|---|---|---|---|---|
 | CAL-QC-HPLC-001 | TEST-FIXTURE-HPLC | 10 | 16 | INCOMPLETE (T01 UNDER REVIEW) | 8 |
 | CAL-QC-POL-001 | QC-I-029 | 6 | 12 | INCOMPLETE (T06 N/A, justified) | 5 |
-| CAL-QC-BAL-001 (Rev.03) | QC-I-074 | 9 | 15 | INCOMPLETE (T04 UNDER REVIEW, T06 N/A) | 10 |
+| CAL-QC-BAL-001 (Rev.03) | QC-I-074 | 9 | 9 | INCOMPLETE (T04 UNDER REVIEW, T06 N/A) | 10 |
 | CAL-QC-MOA-001 | QC-I-023 | 6 | 12 | INCOMPLETE | 4 |
 | CAL-QC-DIS-001 | QC-I-009 | 7 | 13 | INCOMPLETE | 5 |
 | CAL-QC-DISINT-001 | QC-I-008 | 7 | 13 | INCOMPLETE | 4 |
@@ -137,7 +137,7 @@ For the HPLC run, the test registered a clearly labelled instrument, `TEST-FIXTU
 | Item | Detail |
 |---|---|
 | Source | `docs/CAL-QC-BAL-001_Rev03_DRAFT_Expanded.pdf` (21-Nov-2026, status DRAFT – TECHNICAL REVIEW / QA APPROVAL REQUIRED) |
-| Definition | `shared/protocols/package8.ts` (`BAL`, `BAL_REV03`). Tests: DQ/URS plus T01–T08, which is 15 run steps. 10 technical gaps (B1–B10). References: <41>/<1251> DOIs, SOP QC-105D, the source document. |
+| Definition | `shared/protocols/package8.ts` (`BAL`, `BAL_REV03`). Tests: DQ/URS plus T01–T08, 9 tests. In the canonical nine-step workflow T03 maps to Accuracy, T04 to Repeatability and T07 to Linearity; DQ, T01, T02, T05, T06 and T08 go under Results. 10 technical gaps (B1–B10). References: <41>/<1251> DOIs, SOP QC-105D, the source document. |
 | Not invented | Rev.03 removed the numeric limits for accuracy, sensitivity, linearity and eccentricity, so they are record-only. Configured limits: repeatability (prior ≤ 0.10 %, to verify), M<sub>min</sub> ≤ m, the 11–220 g range, and the proposed 20–25 °C / 40–60 % RH site window. All criteria remain PENDING TECHNICAL VERIFICATION. |
 | Applying it to a system that already has Rev.01 | Button **"Adopt Rev.03"** (`protocols.adoptBalanceRev03`). An open draft is updated with an audited diff. A released revision is kept and a new draft revision is created. Equipment links are kept. Untouched Rev.01 specification sources are re-labelled UNVERIFIED. The run is idempotent. A fresh import creates Rev.03 directly. |
 | Tests | `server/package8.test.ts` 16/16; `server/protocolWorkflow.test.ts` 10/10 (new: Rev.01 draft → Rev.03, released Rev.01 → new revision 2, history and hash preserved, user specs untouched, idempotent); `server/runPdf8.test.ts` 1/1. The BAL evidence PDF has been regenerated. |

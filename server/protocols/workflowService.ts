@@ -1,6 +1,6 @@
 /**
  * Calibration workflow services (v3):
- *  - Equipment data & specifications («تعديل بيانات ومواصفات الأجهزة») with
+ *  - Equipment data & specifications («تعديل بيانات المعدات والمواصفات») with
  *    field-level immutable audit and controlled propagation to protocols;
  *  - Calibration runs: dynamic per-protocol workflow (one step per test) with
  *    frozen equipment + protocol snapshots, versioned drafts and optimistic
@@ -27,7 +27,7 @@ import type { ExecutionDeviation } from "../../shared/protocols/executionReview"
 import { EDITABLE_STATUSES, LOCKED_STATUSES, parseProtocolContent, type ProtocolContent } from "../../shared/protocols/model";
 import { BAL_REV01_SPEC_SOURCES, BAL_REV03, BAL_REV03_REASON, PACKAGE_IMPORT_REASON, PACKAGE_NEW_EQUIPMENT, PACKAGE_PROTOCOLS, PACKAGE_REFERENCES } from "../../shared/protocols/package8";
 import { remapReferencePlaceholders } from "../../shared/protocols/adp220";
-import { buildRunSteps, runApprovalBlockers } from "../../shared/protocols/runWorkflow";
+import { buildRunSteps, canonicalStepBlockers, naMeasurementKey, runApprovalBlockers } from "../../shared/protocols/runWorkflow";
 import {
   ProtocolError,
   compatibilityProblems,
@@ -365,7 +365,7 @@ function candidateEquipment(content: ProtocolContent, all: EquipmentView[]) {
   return all.filter(e => normalizeMaker(e.identity.model) === normalizeMaker(content.identification.model));
 }
 
-/** Protocols available for a calibration run, with their applicable equipment and dynamic step counts. */
+/** Protocols available for a calibration run, with their applicable equipment and the canonical nine-step workflow. */
 export async function runCatalog() {
   const all = await listEquipmentData();
   const protocols = await protocolStore().select<ProtocolRow>("protocols", { order: [{ column: "protocol_number" }] });
@@ -379,7 +379,7 @@ export async function runCatalog() {
     const equipment = candidateEquipment(revision.content, all);
     out.push({
       protocolId: p.id, protocolNumber: p.protocol_number, title: p.title, revisionId: revision.id, revisionNumber: revision.revision_number, revisionStatus: revision.status,
-      testCount: steps.filter(s => s.kind === "test").length, stepCount: steps.length, pendingVerification: revision.pending_verification_count, openGaps: revision.open_gap_count,
+      testCount: revision.content.sections.flatMap(s => s.tests).length, stepCount: steps.length, pendingVerification: revision.pending_verification_count, openGaps: revision.open_gap_count,
       equipment: equipment.map(e => ({ instrumentKey: e.instrumentKey, name: e.identity.nameEn, instrumentId: e.identity.instrumentId, status: e.status })),
       allEquipment: revision.content.equipmentLinks.length ? null : "model",
     });
@@ -440,15 +440,18 @@ export async function getRun(actor: Actor, runId: string) {
   const registryEntry = (await equipmentRegistry()).find(e => e.instrumentKey === run.instrument_key);
   const compatibility = registryEntry ? compatibilityProblems(content, registryEntry) : ["Equipment no longer in the Equipment Library"];
   const duties = await dutiesOf(actor);
-  const blockers = runApprovalBlockers({
-    revisionStatus: revision.status,
-    protocolChanged: revision.content_hash !== run.content_hash,
-    evaluation,
-    content,
-    equipmentRetired: currentEquipment?.status === "retired",
-    identityChanged: !!currentEquipment && ["instrumentId", "serialNumber", "manufacturer", "model"].some(k => currentEquipment.identity[k as keyof EquipmentIdentity] !== run.equipment_snapshot.identity[k as keyof EquipmentIdentity]),
-    compatibility,
-  });
+  const blockers = [
+    ...runApprovalBlockers({
+      revisionStatus: revision.status,
+      protocolChanged: revision.content_hash !== run.content_hash,
+      evaluation,
+      content,
+      equipmentRetired: currentEquipment?.status === "retired",
+      identityChanged: !!currentEquipment && ["instrumentId", "serialNumber", "manufacturer", "model"].some(k => currentEquipment.identity[k as keyof EquipmentIdentity] !== run.equipment_snapshot.identity[k as keyof EquipmentIdentity]),
+      compatibility,
+    }),
+    ...canonicalStepBlockers(content, run.measurements ?? {}),
+  ];
   let execution: { id: string; reviewStatus: string } | null = null;
   if (run.execution_id) {
     const reviews = await protocolStore().select<{ to_status: string; created_at: string }>("protocol_execution_reviews", { where: { execution_id: run.execution_id }, columns: ["to_status", "created_at"], order: [{ column: "created_at" }] });
@@ -474,8 +477,11 @@ export async function getRun(actor: Actor, runId: string) {
 
 function assertMeasurements(content: ProtocolContent, measurements: Measurements) {
   const known = new Set(content.sections.flatMap(s => s.tests.map(t => t.key)));
-  const unknown = Object.keys(measurements).filter(k => !known.has(k));
-  if (unknown.length) throw new ProtocolError("BAD_REQUEST", "Measurements reference tests that are not part of this protocol revision", unknown);
+  // Reserved keys document an intentionally Not-Applicable canonical step; they
+  // are part of the controlled run record, not protocol tests.
+  const reserved = new Set(["accuracy", "repeatability", "linearity"].map(naMeasurementKey));
+  const unknown = Object.keys(measurements).filter(k => !known.has(k) && !reserved.has(k));
+  if (unknown.length) throw new ProtocolError("BAD_REQUEST", "Measurements reference tests / reserved keys that are not part of this protocol revision", unknown);
   if (JSON.stringify(measurements).length > 900_000) throw new ProtocolError("BAD_REQUEST", "Run data too large");
 }
 
@@ -523,15 +529,18 @@ export async function recordRun(actor: Actor, input: { runId: string; expectedRo
   const current = all.find(e => e.instrumentKey === run.instrument_key);
   const evaluation = evaluateExecution(content, run.measurements ?? {});
   const registryEntry = (await equipmentRegistry()).find(e => e.instrumentKey === run.instrument_key);
-  const blockers = runApprovalBlockers({
-    revisionStatus: revision.status,
-    protocolChanged: revision.content_hash !== run.content_hash,
-    evaluation,
-    content,
-    equipmentRetired: current?.status === "retired",
-    identityChanged: !current || ["instrumentId", "serialNumber", "manufacturer", "model"].some(k => current.identity[k as keyof EquipmentIdentity] !== run.equipment_snapshot.identity[k as keyof EquipmentIdentity]),
-    compatibility: registryEntry ? compatibilityProblems(content, registryEntry) : ["Equipment no longer in the Equipment Library"],
-  }).filter(b => b.blocksRecording);
+  const blockers = [
+    ...runApprovalBlockers({
+      revisionStatus: revision.status,
+      protocolChanged: revision.content_hash !== run.content_hash,
+      evaluation,
+      content,
+      equipmentRetired: current?.status === "retired",
+      identityChanged: !current || ["instrumentId", "serialNumber", "manufacturer", "model"].some(k => current.identity[k as keyof EquipmentIdentity] !== run.equipment_snapshot.identity[k as keyof EquipmentIdentity]),
+      compatibility: registryEntry ? compatibilityProblems(content, registryEntry) : ["Equipment no longer in the Equipment Library"],
+    }),
+    ...canonicalStepBlockers(content, run.measurements ?? {}),
+  ].filter(b => b.blocksRecording);
   if (blockers.length) throw new ProtocolError("PRECONDITION_FAILED", "The run cannot be formally recorded", blockers.map(b => b.message));
   const prepared = await prepareExecution(actor, { revisionId: run.revision_id, instrumentKey: run.instrument_key, measurements: run.measurements ?? {}, comments: [`Calibration run ${run.run_number}.`, input.comments ?? ""].join(" ").trim(), deviations: input.deviations, stage: input.stage });
   const t = now();

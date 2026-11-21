@@ -15,7 +15,14 @@ import { jsPDF } from "jspdf";
 import type { ExecutionEvaluation, Measurements } from "@shared/protocols/evaluate";
 import { canonicalJson, PENDING_LABEL, type ProtocolContent } from "@shared/protocols/model";
 import { NOT_AVAILABLE, SPEC_GROUPS, specDefinitions, type EquipmentSnapshot } from "@shared/protocols/equipment";
-import type { RunBlocker } from "@shared/protocols/runWorkflow";
+import {
+  CANONICAL_STEP_KEYS,
+  CANONICAL_STEP_LABELS,
+  NA_CONFIRMATION_FIELD,
+  mapTestsToSteps,
+  naMeasurementKey,
+  type RunBlocker,
+} from "@shared/protocols/runWorkflow";
 import { pdfSafe } from "./protocolPdf";
 
 export type RunPdfInput = {
@@ -156,7 +163,7 @@ export function buildRunPdf(input: RunPdfInput): { doc: jsPDF; documentId: strin
     ["Protocol content hash (snapshot)", input.contentHash],
     ["Run created", `${input.createdAt.slice(0, 16).replace("T", " ")} UTC by ${input.createdBy ?? "—"}`],
     ["Last saved", `${input.updatedAt.slice(0, 16).replace("T", " ")} UTC by ${input.updatedBy ?? "—"}`],
-    ["Workflow steps (this protocol)", `${2 + input.content.sections.reduce((n, s) => n + s.tests.length, 0) + 4} (Equipment, Protocol, ${input.content.sections.reduce((n, s) => n + s.tests.length, 0)} test steps, Results, Review, Approval, PDF)`],
+    ["Workflow", "Unified nine-step controlled workflow: 1 Equipment Selection, 2 Protocol, 3 Accuracy, 4 Repeatability, 5 Linearity, 6 Results, 7 Review, 8 Approval, 9 PDF"],
   ]);
   para("Loading or executing a protocol does not imply that the instrument passed. Calculated outcomes are technical results only; they are not an approval.", { size: 8, color: [163, 60, 48] });
 
@@ -193,6 +200,30 @@ export function buildRunPdf(input: RunPdfInput): { doc: jsPDF; documentId: strin
     ["Criteria pending technical verification", `${pending}${pending ? ` — ${PENDING_LABEL}: no compliance conclusion` : ""}`],
     ["Open technical gaps", input.content.gaps.length ? input.content.gaps.map(g => `${g.key}: ${g.title}`).join("; ") : "None"],
   ]);
+
+  // 3b. Canonical nine-step workflow and protocol-test mapping (snapshot based)
+  heading("3b. Nine-step controlled workflow and test mapping");
+  const wfMapping = mapTestsToSteps(input.content);
+  const wfRows: string[][] = CANONICAL_STEP_KEYS.map((key, i) => {
+    let detail = "—";
+    if (key === "accuracy" || key === "repeatability" || key === "linearity") {
+      const tests = wfMapping[key];
+      detail = tests.length ? tests.map(t => `${t.key} ${t.name}`).join("; ") : "Not Applicable — documented in the run";
+    } else if (key === "results") {
+      detail = wfMapping.results.length ? wfMapping.results.map(t => `${t.key} ${t.name}`).join("; ") : "Consolidated outcome of every protocol test";
+    }
+    return [`${i + 1}`, CANONICAL_STEP_LABELS[key].label, detail];
+  });
+  table(["#", "Controlled step", "Protocol tests mapped / disposition"], wfRows, [0.4, 1.4, 4]);
+  const naRows: string[][] = (["accuracy", "repeatability", "linearity"] as const).flatMap(step => {
+    const m = input.measurements[naMeasurementKey(step)];
+    if (!m?.notApplicable) return [];
+    return [[CANONICAL_STEP_LABELS[step].label, m.naJustification || "—", m.fields?.[NA_CONFIRMATION_FIELD] === true ? "Confirmed" : "NOT CONFIRMED"]];
+  });
+  if (naRows.length) {
+    para("Not-Applicable test steps (recorded, never silently skipped):", { bold: true, size: 8 });
+    table(["Step", "Documented justification", "Reviewer confirmation"], naRows, [1.1, 3.3, 1]);
+  }
 
   // 4. Results summary
   heading("4. Results summary (calculation engine " + input.evaluation.engineVersion + ")");

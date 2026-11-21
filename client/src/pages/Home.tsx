@@ -52,7 +52,7 @@ const EquipmentDataPage = lazy(() =>
   }))
 );
 /** Exact page title required by the user (shown in both interface languages). */
-const EQUIPMENT_PAGE_TITLE = "تعديل بيانات ومواصفات الأجهزة";
+const EQUIPMENT_PAGE_TITLE = "تعديل بيانات المعدات والمواصفات";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { downloadOfficialPdf } from "@/lib/officialPdf";

@@ -1,5 +1,5 @@
 /**
- * «تعديل بيانات ومواصفات الأجهزة» — single page to view and edit equipment
+ * «تعديل بيانات المعدات والمواصفات» — single page to view and edit equipment
  * identity and technical specifications.
  *
  *  - typed, unit-aware specification groups (no automatic unit conversion);
@@ -21,7 +21,7 @@ import { diffEquipment, IDENTITY_FIELDS, NOT_AVAILABLE, SPEC_CATALOG, SPEC_GROUP
 import { ErrorBox, Field, Loading, Panel, askReason, errorText, fmtDate, type PmUser, type ProtocolOutputs } from "./common";
 import "./protocols.css";
 
-export const EQUIPMENT_PAGE_TITLE = "تعديل بيانات ومواصفات الأجهزة";
+export const EQUIPMENT_PAGE_TITLE = "تعديل بيانات المعدات والمواصفات";
 
 type Lang = "ar" | "en";
 type EquipmentItem = ProtocolOutputs["equipmentData"][number];
