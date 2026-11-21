@@ -29,7 +29,7 @@ let author: svc.Actor;
 /** Fixture inputs per protocol (see file header). */
 const FIXTURES: Record<string, Measurements> = {
   "CAL-QC-HPLC-001": { T01: { fields: { set_1: 0.5, vol_1: 10, time_1: 20, set_2: 1.5, vol_2: 10, time_2: 6.6, set_3: 2.5, vol_3: 10, time_3: 4 }, comment: "Fixture: HPLC.pdf p.2 handwritten values" } },
-  "CAL-QC-BAL-001": { T04: { readings: Array(10).fill(100.0001), fields: { m: 0.1 }, comment: "Synthetic fixture" } },
+  "CAL-QC-BAL-001": { T04: { readings: Array(10).fill(100.0001), fields: { d: 0.0001, m: 0.1 }, comment: "Synthetic fixture" } },
   "CAL-QC-UV-001": { T02: { fields: { instrument_type: "non-diode-array", wl_standard: "Holmium oxide", wl_cert: "FIXTURE" }, levelReferences: { UVL: 361.5, VISL: 536.4 }, levels: { UVL: [361.6, 361.5, 361.7, 361.6, 361.5, 361.6], VISL: [537.9, 538.0, 537.8, 538.1, 537.9, 538.0] } } },
   "CAL-QC-POL-001": { T06: { notApplicable: true, naJustification: "Fixture: demonstrates a justified NOT APPLICABLE entry" } },
 };
@@ -109,7 +109,7 @@ describe("8 protocols → calibration runs → PDF reports", () => {
       summary.push({ protocol: p.number, equipment: equipment.instrumentId, tests, steps: d.steps.length, overall: d.evaluation.overall, counts: d.evaluation.counts, pages, documentId, file });
     }
     writeFileSync(path.join(OUT, "summary.json"), JSON.stringify(summary, null, 2) + "\n");
-    expect(summary.map(s => s.steps)).toEqual([16, 12, 14, 12, 13, 13, 12, 14]);
+    expect(summary.map(s => s.steps)).toEqual([16, 12, 15, 12, 13, 13, 12, 14]);
     // audit: one run.pdf entry per protocol
     const audit = await sqliteProtocolStore.select<{ action: string }>("protocol_audit_events", { where: { action: "run.pdf-generated" } });
     expect(audit.length).toBe(8);

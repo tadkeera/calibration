@@ -1,0 +1,1531 @@
+{
+ "_note": "CAL-QC-BAL-001 Rev.01 package content exactly as imported by PR #6 (main @ 959f8b8). Test fixture only — superseded by Rev.03.",
+ "sourceRevision": "01",
+ "content": {
+  "identification": {
+   "title": "Calibration & Qualification Protocol — Analytical Balance Sartorius ED224S",
+   "number": "CAL-QC-BAL-001",
+   "description": "Imported from the supplied package (CAL-QC-BAL-001_Analytical_Balance_Protocol_Rev01_DRAFT_QA_PENDING.docx). Source document revision: Rev.01; source status: INITIAL QUALIFICATION ISSUE – TECHNICAL REVIEW COMPLETED (source) / QA APPROVAL PENDING.\nSystem status: DRAFT — all acceptance criteria PENDING TECHNICAL VERIFICATION. Loading this protocol does not imply that the instrument passed.\nSource revision history: Rev.00 20-Nov-2026 initial generic draft (superseded); Rev.01 20-Nov-2026 identity populated, USP <41>/<1251> criteria clarified — QA approval pending. Technical review recorded in the source must be repeated/recorded in this system. The historical QC-I-074 record (6 repeatability readings, ±0.0004 g limit) is background only — USP <41> requires NLT 10 weighings (gap B1).\nOpen items before approval (source §15): complete instrument-specific model, serial number, range/capacity, resolution, software version, site SOP references, calibration interval, local environmental requirements, approved test conditions and reference-standard certificates. Confirm every acceptance criterion against the exact applicable USP section and instrument configuration. This draft is not an authorization to use the instrument.",
+   "category": "Analytical instrument",
+   "equipmentCategory": "Laboratory instrument",
+   "equipmentType": "Analytical Balance",
+   "manufacturer": "Sartorius (Germany)",
+   "model": "ED224S",
+   "associationType": "equipment",
+   "intendedUse": "Pharmaceutical QC laboratory use",
+   "protocolType": "IQ-OQ-PQ",
+   "department": "Quality Control",
+   "applicableStandards": "Mandatory repeatability and accuracy requirements; minimum weight relationship; Installation, OQ, PQ guidance; sensitivity, linearity, eccentricity, minimum weight; AIQ lifecycle / IQ-OQ-PQ framework; Instrument-specific characteristics (capacity, readability, repeatability, linearity, operating conditions)",
+   "applicableSops": "",
+   "relatedForm": ""
+  },
+  "narrative": {
+   "purpose": "To define and document the installation, operational and performance qualification activities required to demonstrate that the identified analytical balance is suitable for its intended pharmaceutical laboratory use.",
+   "scope": "This protocol applies to Analytical Balance QC-I-074, Sartorius model ED224S, serial number 23304057. It covers IQ, OQ and risk-based PQ tests, including the compendial requirements of USP General Chapter <41> for balances used to weigh materials that must be accurately weighed. It does not replace product-specific analytical methods, approved site SOPs or any applicable monograph.",
+   "responsibilities": "Calibration / Validation: protocol ownership, execution or oversight, calculations, traceability, deviations and technical report.\nEquipment Owner / QC User: define intended use, provide method/monograph conditions, support PQ and assess impact on analytical work.\nEngineering / Maintenance: installation utilities, repairs, preventive maintenance and technical support.\nQuality Assurance: independent review, deviation assessment, approval and controlled release.",
+   "definitions": "IQ: documented evidence of correct installation. OQ: documented evidence that functions operate as intended. PQ: documented evidence of suitable performance under routine or representative operating conditions. AIQ is a lifecycle, risk-based process; see USP <1058>.",
+   "requiredReferenceStandards": "Accuracy weights 5–100 % of capacity (11–220 g) with MPE or calibration uncertainty ≤ one-third of the applied test limit; sensitivity/linearity weights certified; repeatability/eccentricity weight need not be certified but must be mass-stable. Record certificate ID, calibration date, due date, uncertainty and coverage factor.",
+   "environmentalConditions": "Suitable environment confirmed before testing; record environmental conditions at execution.",
+   "safetyRequirements": "Confirm approved protocol/revision; equipment identity and status; current maintenance; suitable environment; qualified reference standards with valid certificates; traceability and uncertainty information; trained personnel; clean and serviceable accessories; approved methods; and safe operating conditions. Record any unmet prerequisite as a deviation before testing.",
+   "deviationManagement": "Stop affected testing when a critical function fails or a result is outside its applicable acceptance criterion. Open a deviation; preserve raw data; assess instrument status, reference standards, method impact and results generated since the last acceptable check; investigate assignable cause; document corrective action and repeat testing only under an approved, justified plan. No result may be retrospectively invalidated without documented investigation.",
+   "finalAssessment": "The instrument may be released only when all applicable tests pass, deviations are resolved or formally assessed, records are complete, the intended minimum net sample weight is defined and QA approval is documented. A missing criterion is not automatically a pass. This protocol itself does not establish that the instrument has passed or is released.",
+   "equipmentDescription": "Sartorius (Germany) ED224S, serial 23304057, equipment ID QC-I-074, site SOP QC-105D. Weighing capacity 220 g; readability d = 0.0001 g; manufacturer repeatability ≤ 0.0001 g; linearity ≤ 0.0002 g; typical response ≤ 2.5 s; pan 90 mm; operating +10 to +30 °C; external calibration weight 200 g class E2 (verify). Model specifications, not measured results."
+  },
+  "stages": [
+   "IQ",
+   "OQ",
+   "PQ"
+  ],
+  "risk": {},
+  "equipmentLinks": [],
+  "references": [
+   {
+    "referenceId": "@USP41",
+    "supports": "Mandatory repeatability and accuracy requirements; minimum weight relationship",
+    "clause": ""
+   },
+   {
+    "referenceId": "@USP1251",
+    "supports": "Installation, OQ, PQ guidance; sensitivity, linearity, eccentricity, minimum weight",
+    "clause": ""
+   },
+   {
+    "referenceId": "@USP1058",
+    "supports": "AIQ lifecycle / IQ-OQ-PQ framework",
+    "clause": ""
+   },
+   {
+    "referenceId": "@SARTORIUS",
+    "supports": "Instrument-specific characteristics (capacity, readability, repeatability, linearity, operating conditions)",
+    "clause": ""
+   },
+   {
+    "referenceId": "@PKG",
+    "supports": "Source document CAL-QC-BAL-001_Analytical_Balance_Protocol_Rev01_DRAFT_QA_PENDING.docx (Rev.01)",
+    "clause": ""
+   }
+  ],
+  "intervals": [],
+  "sections": [
+   {
+    "key": "qualification",
+    "title": "8. Qualification Tests and Execution Data Sheets",
+    "description": "",
+    "body": "",
+    "required": true,
+    "stage": "OQ",
+    "referenceIds": [],
+    "attachments": "",
+    "tests": [
+     {
+      "key": "T01",
+      "name": "T01 — Installation Qualification (IQ)",
+      "description": "Source acceptance / rule (verbatim from the supplied protocol): All identity fields match this protocol; installation and environment meet manufacturer instructions and approved site requirements. Any unmet requirement is documented and assessed.",
+      "objective": "",
+      "category": "IQ",
+      "stage": "IQ",
+      "method": "",
+      "procedure": "Verify nameplate identity, model, serial, equipment ID, accessories, manuals, installation records, support surface, leveling, power supply, location and environmental suitability. Document any deviations and photographs where permitted.",
+      "referenceIds": [
+       "@USP1251",
+       "@USP1058"
+      ],
+      "referenceClause": "USP <1251> PDF p.1",
+      "requiredMaterials": "",
+      "requiredInstruments": "",
+      "requiredReferenceStandards": "",
+      "parameter": "",
+      "unit": "",
+      "nominal": null,
+      "dataType": "checklist",
+      "readingsRequired": 0,
+      "replicates": 1,
+      "levels": [],
+      "conditions": "",
+      "fields": [
+       {
+        "key": "identity_ok",
+        "label": "Nameplate identity matches (ED224S / 23304057 / QC-I-074)",
+        "type": "boolean",
+        "unit": "",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "docs_ok",
+        "label": "Accessories, manuals and installation records present",
+        "type": "boolean",
+        "unit": "",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "surface_ok",
+        "label": "Solid, level, nonmagnetic, low-vibration support surface; leveled",
+        "type": "boolean",
+        "unit": "",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "power_ok",
+        "label": "Power supply verified",
+        "type": "boolean",
+        "unit": "",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "environment_ok",
+        "label": "Location and environment suitable (drafts, sunlight, temperature/humidity, EM fields assessed)",
+        "type": "boolean",
+        "unit": "",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "software_version",
+        "label": "Software / firmware (if applicable)",
+        "type": "text",
+        "unit": "",
+        "required": false,
+        "options": []
+       },
+       {
+        "key": "location",
+        "label": "Location / room ID",
+        "type": "text",
+        "unit": "",
+        "required": true,
+        "options": []
+       }
+      ],
+      "calculations": [],
+      "criteria": [
+       {
+        "key": "c_identity_ok",
+        "parameter": "identity_ok",
+        "requirement": "Verified per CAL-QC-BAL-001 Rev.01 T01 acceptance (identity matches; installation and environment meet manufacturer instructions and site requirements).",
+        "comparison": "pass-fail",
+        "lower": null,
+        "upper": null,
+        "target": null,
+        "tolerance": null,
+        "unit": "",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP1251",
+        "referenceClause": "PDF p.1",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       },
+       {
+        "key": "c_docs_ok",
+        "parameter": "docs_ok",
+        "requirement": "Verified per CAL-QC-BAL-001 Rev.01 T01 acceptance (identity matches; installation and environment meet manufacturer instructions and site requirements).",
+        "comparison": "pass-fail",
+        "lower": null,
+        "upper": null,
+        "target": null,
+        "tolerance": null,
+        "unit": "",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP1251",
+        "referenceClause": "PDF p.1",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       },
+       {
+        "key": "c_surface_ok",
+        "parameter": "surface_ok",
+        "requirement": "Verified per CAL-QC-BAL-001 Rev.01 T01 acceptance (identity matches; installation and environment meet manufacturer instructions and site requirements).",
+        "comparison": "pass-fail",
+        "lower": null,
+        "upper": null,
+        "target": null,
+        "tolerance": null,
+        "unit": "",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP1251",
+        "referenceClause": "PDF p.1",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       },
+       {
+        "key": "c_power_ok",
+        "parameter": "power_ok",
+        "requirement": "Verified per CAL-QC-BAL-001 Rev.01 T01 acceptance (identity matches; installation and environment meet manufacturer instructions and site requirements).",
+        "comparison": "pass-fail",
+        "lower": null,
+        "upper": null,
+        "target": null,
+        "tolerance": null,
+        "unit": "",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP1251",
+        "referenceClause": "PDF p.1",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       },
+       {
+        "key": "c_environment_ok",
+        "parameter": "environment_ok",
+        "requirement": "Verified per CAL-QC-BAL-001 Rev.01 T01 acceptance (identity matches; installation and environment meet manufacturer instructions and site requirements).",
+        "comparison": "pass-fail",
+        "lower": null,
+        "upper": null,
+        "target": null,
+        "tolerance": null,
+        "unit": "",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP1251",
+        "referenceClause": "PDF p.1",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       }
+      ],
+      "requiredEvidence": "Raw data printouts / certificates / photographs as applicable (attach to the execution).",
+      "attachmentsRequired": false,
+      "notes": "",
+      "required": true,
+      "dependency": {
+       "type": "independent",
+       "testKey": null,
+       "note": ""
+      }
+     },
+     {
+      "key": "T02",
+      "name": "T02 — Operational Qualification (OQ)",
+      "description": "Source acceptance / rule (verbatim from the supplied protocol): Functions operate as specified by the manufacturer and approved site requirements. Record observed results; no generic numeric USP limit is assigned to these functional checks.",
+      "objective": "",
+      "category": "OQ",
+      "stage": "OQ",
+      "method": "",
+      "procedure": "Power on and equilibrate per manufacturer instructions. Verify mechanical mobility, stable indication, internal/manual adjustment function (as fitted), ancillary equipment, tare function and initial calibration at the normal use location.",
+      "referenceIds": [
+       "@USP1251"
+      ],
+      "referenceClause": "USP <1251> PDF pp.1–2",
+      "requiredMaterials": "",
+      "requiredInstruments": "",
+      "requiredReferenceStandards": "",
+      "parameter": "",
+      "unit": "",
+      "nominal": null,
+      "dataType": "checklist",
+      "readingsRequired": 0,
+      "replicates": 1,
+      "levels": [],
+      "conditions": "",
+      "fields": [
+       {
+        "key": "equilibrated",
+        "label": "Equilibrated per manufacturer instructions",
+        "type": "boolean",
+        "unit": "",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "mobility_ok",
+        "label": "Mechanical mobility / stable indication",
+        "type": "boolean",
+        "unit": "",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "adjust_ok",
+        "label": "Internal / manual adjustment function (as fitted)",
+        "type": "boolean",
+        "unit": "",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "tare_ok",
+        "label": "Tare function",
+        "type": "boolean",
+        "unit": "",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "initial_cal_ok",
+        "label": "Initial calibration at the normal use location",
+        "type": "boolean",
+        "unit": "",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "oq_notes",
+        "label": "Observed results",
+        "type": "text",
+        "unit": "",
+        "required": false,
+        "options": []
+       }
+      ],
+      "calculations": [],
+      "criteria": [
+       {
+        "key": "c_equilibrated",
+        "parameter": "equilibrated",
+        "requirement": "Function operates as specified by the manufacturer (functional check — no numeric USP limit).",
+        "comparison": "pass-fail",
+        "lower": null,
+        "upper": null,
+        "target": null,
+        "tolerance": null,
+        "unit": "",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP1251",
+        "referenceClause": "PDF pp.1–2",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       },
+       {
+        "key": "c_mobility_ok",
+        "parameter": "mobility_ok",
+        "requirement": "Function operates as specified by the manufacturer (functional check — no numeric USP limit).",
+        "comparison": "pass-fail",
+        "lower": null,
+        "upper": null,
+        "target": null,
+        "tolerance": null,
+        "unit": "",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP1251",
+        "referenceClause": "PDF pp.1–2",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       },
+       {
+        "key": "c_adjust_ok",
+        "parameter": "adjust_ok",
+        "requirement": "Function operates as specified by the manufacturer (functional check — no numeric USP limit).",
+        "comparison": "pass-fail",
+        "lower": null,
+        "upper": null,
+        "target": null,
+        "tolerance": null,
+        "unit": "",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP1251",
+        "referenceClause": "PDF pp.1–2",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       },
+       {
+        "key": "c_tare_ok",
+        "parameter": "tare_ok",
+        "requirement": "Function operates as specified by the manufacturer (functional check — no numeric USP limit).",
+        "comparison": "pass-fail",
+        "lower": null,
+        "upper": null,
+        "target": null,
+        "tolerance": null,
+        "unit": "",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP1251",
+        "referenceClause": "PDF pp.1–2",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       },
+       {
+        "key": "c_initial_cal_ok",
+        "parameter": "initial_cal_ok",
+        "requirement": "Function operates as specified by the manufacturer (functional check — no numeric USP limit).",
+        "comparison": "pass-fail",
+        "lower": null,
+        "upper": null,
+        "target": null,
+        "tolerance": null,
+        "unit": "",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP1251",
+        "referenceClause": "PDF pp.1–2",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       }
+      ],
+      "requiredEvidence": "Raw data printouts / certificates / photographs as applicable (attach to the execution).",
+      "attachmentsRequired": false,
+      "notes": "",
+      "required": true,
+      "dependency": {
+       "type": "independent",
+       "testKey": null,
+       "note": ""
+      }
+     },
+     {
+      "key": "T03",
+      "name": "T03 — Accuracy (USP <41>)",
+      "description": "Source acceptance / rule (verbatim from the supplied protocol): Absolute relative error ≤ 0.10% at each tested point. Weight MPE or calibration uncertainty ≤ one-third of the applied accuracy test limit. This is a USP <41> requirement.",
+      "objective": "",
+      "category": "OQ",
+      "stage": "OQ",
+      "method": "",
+      "procedure": "Use suitable calibrated weight(s) between 5% and 100% of capacity (11 g–220 g). Record certified/reference value and indicated value. Error (%) = [(Indicated − Reference) / Reference] × 100. Include the 200 g point if suitable; do not rely on a single point unless justified by the approved procedure.",
+      "referenceIds": [
+       "@USP41"
+      ],
+      "referenceClause": "USP <41> PDF p.1",
+      "requiredMaterials": "",
+      "requiredInstruments": "",
+      "requiredReferenceStandards": "",
+      "parameter": "",
+      "unit": "",
+      "nominal": null,
+      "dataType": "calculated",
+      "readingsRequired": 0,
+      "replicates": 1,
+      "levels": [],
+      "conditions": "",
+      "fields": [
+       {
+        "key": "w1_cert",
+        "label": "Point 1 — weight ID / certificate",
+        "type": "certificate",
+        "unit": "",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "ref_1",
+        "label": "Point 1 — reference (certified) value",
+        "type": "number",
+        "unit": "g",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "ind_1",
+        "label": "Point 1 — indicated value",
+        "type": "number",
+        "unit": "g",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "u_1",
+        "label": "Point 1 — weight MPE or calibration uncertainty",
+        "type": "number",
+        "unit": "g",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "w2_cert",
+        "label": "Point 2 — weight ID / certificate",
+        "type": "certificate",
+        "unit": "",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "ref_2",
+        "label": "Point 2 — reference (certified) value",
+        "type": "number",
+        "unit": "g",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "ind_2",
+        "label": "Point 2 — indicated value",
+        "type": "number",
+        "unit": "g",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "u_2",
+        "label": "Point 2 — weight MPE or calibration uncertainty",
+        "type": "number",
+        "unit": "g",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "w3_cert",
+        "label": "Point 3 — weight ID / certificate",
+        "type": "certificate",
+        "unit": "",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "ref_3",
+        "label": "Point 3 — reference (certified) value",
+        "type": "number",
+        "unit": "g",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "ind_3",
+        "label": "Point 3 — indicated value",
+        "type": "number",
+        "unit": "g",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "u_3",
+        "label": "Point 3 — weight MPE or calibration uncertainty",
+        "type": "number",
+        "unit": "g",
+        "required": true,
+        "options": []
+       }
+      ],
+      "calculations": [
+       {
+        "key": "err_1",
+        "label": "Error point 1",
+        "kind": "custom",
+        "formula": "(ind_1 - ref_1) / ref_1 * 100",
+        "scope": "test",
+        "unit": "%",
+        "decimals": 4,
+        "significantFigures": null,
+        "formulaRevision": "PKG8-1",
+        "justification": ""
+       },
+       {
+        "key": "umargin_1",
+        "label": "One-third of limit − u (point 1)",
+        "kind": "custom",
+        "formula": "ref_1 * 0.10 / 100 / 3 - u_1",
+        "scope": "test",
+        "unit": "g",
+        "decimals": 6,
+        "significantFigures": null,
+        "formulaRevision": "PKG8-1",
+        "justification": ""
+       },
+       {
+        "key": "err_2",
+        "label": "Error point 2",
+        "kind": "custom",
+        "formula": "(ind_2 - ref_2) / ref_2 * 100",
+        "scope": "test",
+        "unit": "%",
+        "decimals": 4,
+        "significantFigures": null,
+        "formulaRevision": "PKG8-1",
+        "justification": ""
+       },
+       {
+        "key": "umargin_2",
+        "label": "One-third of limit − u (point 2)",
+        "kind": "custom",
+        "formula": "ref_2 * 0.10 / 100 / 3 - u_2",
+        "scope": "test",
+        "unit": "g",
+        "decimals": 6,
+        "significantFigures": null,
+        "formulaRevision": "PKG8-1",
+        "justification": ""
+       },
+       {
+        "key": "err_3",
+        "label": "Error point 3",
+        "kind": "custom",
+        "formula": "(ind_3 - ref_3) / ref_3 * 100",
+        "scope": "test",
+        "unit": "%",
+        "decimals": 4,
+        "significantFigures": null,
+        "formulaRevision": "PKG8-1",
+        "justification": ""
+       },
+       {
+        "key": "umargin_3",
+        "label": "One-third of limit − u (point 3)",
+        "kind": "custom",
+        "formula": "ref_3 * 0.10 / 100 / 3 - u_3",
+        "scope": "test",
+        "unit": "g",
+        "decimals": 6,
+        "significantFigures": null,
+        "formulaRevision": "PKG8-1",
+        "justification": ""
+       }
+      ],
+      "criteria": [
+       {
+        "key": "err_1_lim",
+        "parameter": "err_1",
+        "requirement": "Absolute relative error ≤ 0.10 % (USP <41>).",
+        "comparison": "abs<=",
+        "lower": null,
+        "upper": null,
+        "target": null,
+        "tolerance": 0.1,
+        "unit": "%",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP41",
+        "referenceClause": "PDF p.1",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       },
+       {
+        "key": "u_1_lim",
+        "parameter": "umargin_1",
+        "requirement": "Weight MPE / uncertainty ≤ one-third of the applied test limit (USP <41>).",
+        "comparison": ">=",
+        "lower": 0,
+        "upper": null,
+        "target": null,
+        "tolerance": null,
+        "unit": "g",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP41",
+        "referenceClause": "PDF p.1",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       },
+       {
+        "key": "range_1",
+        "parameter": "ref_1",
+        "requirement": "Test weight between 5 % and 100 % of the 220 g capacity (11–220 g).",
+        "comparison": "between",
+        "lower": 11,
+        "upper": 220,
+        "target": null,
+        "tolerance": null,
+        "unit": "g",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP41",
+        "referenceClause": "PDF p.1",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       },
+       {
+        "key": "err_2_lim",
+        "parameter": "err_2",
+        "requirement": "Absolute relative error ≤ 0.10 % (USP <41>).",
+        "comparison": "abs<=",
+        "lower": null,
+        "upper": null,
+        "target": null,
+        "tolerance": 0.1,
+        "unit": "%",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP41",
+        "referenceClause": "PDF p.1",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       },
+       {
+        "key": "u_2_lim",
+        "parameter": "umargin_2",
+        "requirement": "Weight MPE / uncertainty ≤ one-third of the applied test limit (USP <41>).",
+        "comparison": ">=",
+        "lower": 0,
+        "upper": null,
+        "target": null,
+        "tolerance": null,
+        "unit": "g",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP41",
+        "referenceClause": "PDF p.1",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       },
+       {
+        "key": "range_2",
+        "parameter": "ref_2",
+        "requirement": "Test weight between 5 % and 100 % of the 220 g capacity (11–220 g).",
+        "comparison": "between",
+        "lower": 11,
+        "upper": 220,
+        "target": null,
+        "tolerance": null,
+        "unit": "g",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP41",
+        "referenceClause": "PDF p.1",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       },
+       {
+        "key": "err_3_lim",
+        "parameter": "err_3",
+        "requirement": "Absolute relative error ≤ 0.10 % (USP <41>).",
+        "comparison": "abs<=",
+        "lower": null,
+        "upper": null,
+        "target": null,
+        "tolerance": 0.1,
+        "unit": "%",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP41",
+        "referenceClause": "PDF p.1",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       },
+       {
+        "key": "u_3_lim",
+        "parameter": "umargin_3",
+        "requirement": "Weight MPE / uncertainty ≤ one-third of the applied test limit (USP <41>).",
+        "comparison": ">=",
+        "lower": 0,
+        "upper": null,
+        "target": null,
+        "tolerance": null,
+        "unit": "g",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP41",
+        "referenceClause": "PDF p.1",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       },
+       {
+        "key": "range_3",
+        "parameter": "ref_3",
+        "requirement": "Test weight between 5 % and 100 % of the 220 g capacity (11–220 g).",
+        "comparison": "between",
+        "lower": 11,
+        "upper": 220,
+        "target": null,
+        "tolerance": null,
+        "unit": "g",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP41",
+        "referenceClause": "PDF p.1",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       }
+      ],
+      "requiredEvidence": "Raw data printouts / certificates / photographs as applicable (attach to the execution).",
+      "attachmentsRequired": false,
+      "notes": "",
+      "required": true,
+      "dependency": {
+       "type": "independent",
+       "testKey": null,
+       "note": ""
+      }
+     },
+     {
+      "key": "T04",
+      "name": "T04 — Repeatability (USP <41>)",
+      "description": "Source acceptance / rule (verbatim from the supplied protocol): For the intended smallest net weight m: (2 × s_eff / m) × 100 ≤ 0.10%. The repeatability test weight need not be calibrated under USP <41>, but its mass must remain stable. This is a USP <41> requirement.",
+      "objective": "",
+      "category": "OQ",
+      "stage": "OQ",
+      "method": "",
+      "procedure": "Perform NLT 10 weighings of one test weight within the balance operating range under the same conditions. Record all individual readings. Calculate sample standard deviation s. Scale interval d = 0.0001 g; s_eff = max(s, 0.41d) = max(s, 0.000041 g).",
+      "referenceIds": [
+       "@USP41"
+      ],
+      "referenceClause": "USP <41> PDF p.1",
+      "requiredMaterials": "",
+      "requiredInstruments": "",
+      "requiredReferenceStandards": "",
+      "parameter": "",
+      "unit": "g",
+      "nominal": null,
+      "dataType": "series",
+      "readingsRequired": 10,
+      "replicates": 1,
+      "levels": [],
+      "conditions": "",
+      "fields": [
+       {
+        "key": "m",
+        "label": "Intended smallest net sample mass m (QC owner input)",
+        "type": "number",
+        "unit": "g",
+        "required": true,
+        "options": []
+       }
+      ],
+      "calculations": [
+       {
+        "key": "s",
+        "label": "Sample SD s (n−1)",
+        "kind": "sd",
+        "formula": "",
+        "scope": "test",
+        "unit": "g",
+        "decimals": null,
+        "significantFigures": null,
+        "formulaRevision": "PKG8-1",
+        "justification": ""
+       },
+       {
+        "key": "s_eff",
+        "label": "s_eff = max(s, 0.41d), d = 0.0001 g",
+        "kind": "custom",
+        "formula": "max(s, 0.000041)",
+        "scope": "test",
+        "unit": "g",
+        "decimals": null,
+        "significantFigures": null,
+        "formulaRevision": "BAL-Rev01 d=0.0001 g",
+        "justification": ""
+       },
+       {
+        "key": "rep",
+        "label": "2·s_eff/m × 100",
+        "kind": "custom",
+        "formula": "2 * s_eff / m * 100",
+        "scope": "test",
+        "unit": "%",
+        "decimals": 4,
+        "significantFigures": null,
+        "formulaRevision": "PKG8-1",
+        "justification": ""
+       }
+      ],
+      "criteria": [
+       {
+        "key": "rep_lim",
+        "parameter": "rep",
+        "requirement": "(2 × s_eff / m) × 100 ≤ 0.10 % with NLT 10 weighings (USP <41>).",
+        "comparison": "<=",
+        "lower": null,
+        "upper": 0.1,
+        "target": null,
+        "tolerance": null,
+        "unit": "%",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP41",
+        "referenceClause": "PDF p.1",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": "Historical QC-I-074 record has 6 readings only — cannot substantiate this test (gap B1)."
+       }
+      ],
+      "requiredEvidence": "Raw data printouts / certificates / photographs as applicable (attach to the execution).",
+      "attachmentsRequired": false,
+      "notes": "Ten readings are mandatory (USP <41> NLT 10). The intended smallest net mass m must be defined by the QC owner — no value is assumed.",
+      "required": true,
+      "dependency": {
+       "type": "independent",
+       "testKey": null,
+       "note": ""
+      }
+     },
+     {
+      "key": "T05",
+      "name": "T05 — Minimum weight (USP <41>/<1251>)",
+      "description": "Source acceptance / rule (verbatim from the supplied protocol): The intended smallest net sample mass must be ≥ Mmin. If s is below 0.41d, use 0.41d. For this balance the rounding floor is 0.000041 g and the corresponding floor-based Mmin is 0.082 g; this is a calculated lower-bound example only and is not the actual approved minimum weight unless supported by the measured repeatability result.",
+      "objective": "",
+      "category": "OQ",
+      "stage": "OQ",
+      "method": "",
+      "procedure": "Calculate Mmin = 2000 × s_eff for materials that must be accurately weighed. Record the QC owner's intended smallest net sample mass and compare it with Mmin. The minimum weight applies to net sample mass, not tare or gross mass. Enter s from T04.",
+      "referenceIds": [
+       "@USP41",
+       "@USP1251"
+      ],
+      "referenceClause": "USP <41> PDF p.1; <1251> PDF p.3",
+      "requiredMaterials": "",
+      "requiredInstruments": "",
+      "requiredReferenceStandards": "",
+      "parameter": "",
+      "unit": "",
+      "nominal": null,
+      "dataType": "calculated",
+      "readingsRequired": 0,
+      "replicates": 1,
+      "levels": [],
+      "conditions": "",
+      "fields": [
+       {
+        "key": "s",
+        "label": "Measured repeatability s (from T04)",
+        "type": "number",
+        "unit": "g",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "m",
+        "label": "Intended smallest net sample mass",
+        "type": "number",
+        "unit": "g",
+        "required": true,
+        "options": []
+       }
+      ],
+      "calculations": [
+       {
+        "key": "s_eff",
+        "label": "s_eff = max(s, 0.000041)",
+        "kind": "custom",
+        "formula": "max(s, 0.000041)",
+        "scope": "test",
+        "unit": "g",
+        "decimals": null,
+        "significantFigures": null,
+        "formulaRevision": "PKG8-1",
+        "justification": ""
+       },
+       {
+        "key": "mmin",
+        "label": "Mmin = 2000 × s_eff",
+        "kind": "custom",
+        "formula": "2000 * s_eff",
+        "scope": "test",
+        "unit": "g",
+        "decimals": null,
+        "significantFigures": null,
+        "formulaRevision": "PKG8-1",
+        "justification": ""
+       },
+       {
+        "key": "mw_margin",
+        "label": "m − Mmin",
+        "kind": "custom",
+        "formula": "m - mmin",
+        "scope": "test",
+        "unit": "g",
+        "decimals": 4,
+        "significantFigures": null,
+        "formulaRevision": "PKG8-1",
+        "justification": ""
+       }
+      ],
+      "criteria": [
+       {
+        "key": "mw_lim",
+        "parameter": "mw_margin",
+        "requirement": "Intended smallest net sample mass ≥ Mmin (USP <41>).",
+        "comparison": ">=",
+        "lower": 0,
+        "upper": null,
+        "target": null,
+        "tolerance": null,
+        "unit": "g",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP41",
+        "referenceClause": "PDF p.1",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       }
+      ],
+      "requiredEvidence": "Raw data printouts / certificates / photographs as applicable (attach to the execution).",
+      "attachmentsRequired": false,
+      "notes": "",
+      "required": true,
+      "dependency": {
+       "type": "sequential",
+       "testKey": "T04",
+       "note": ""
+      }
+     },
+     {
+      "key": "T06",
+      "name": "T06 — Sensitivity (USP <1251> risk-based PQ)",
+      "description": "Source acceptance / rule (verbatim from the supplied protocol): Where USP <41> applies and this test is selected to assess systematic deviation, NMT 0.05% deviation from 1. For other uses, use the approved weighing tolerance divided by 2. This is a suggested PQ test under <1251>, not a standalone mandatory <41> test.",
+      "objective": "",
+      "category": "PQ",
+      "stage": "PQ",
+      "method": "",
+      "procedure": "Use a certified test load at or sufficiently close to the balance capacity. Sensitivity ratio = change in displayed value / applied load; express deviation from 1 as a percentage. Record the weight certificate and uncertainty/MPE.",
+      "referenceIds": [
+       "@USP1251"
+      ],
+      "referenceClause": "USP <1251> PDF p.2",
+      "requiredMaterials": "",
+      "requiredInstruments": "",
+      "requiredReferenceStandards": "",
+      "parameter": "",
+      "unit": "",
+      "nominal": null,
+      "dataType": "calculated",
+      "readingsRequired": 0,
+      "replicates": 1,
+      "levels": [],
+      "conditions": "",
+      "fields": [
+       {
+        "key": "ref_load",
+        "label": "Reference load",
+        "type": "number",
+        "unit": "g",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "ind_change",
+        "label": "Indicated change",
+        "type": "number",
+        "unit": "g",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "load_cert",
+        "label": "Test load certificate / uncertainty",
+        "type": "certificate",
+        "unit": "",
+        "required": true,
+        "options": []
+       }
+      ],
+      "calculations": [
+       {
+        "key": "ratio",
+        "label": "Sensitivity ratio",
+        "kind": "custom",
+        "formula": "ind_change / ref_load",
+        "scope": "test",
+        "unit": "",
+        "decimals": null,
+        "significantFigures": null,
+        "formulaRevision": "PKG8-1",
+        "justification": ""
+       },
+       {
+        "key": "sens_dev",
+        "label": "|ratio − 1| × 100",
+        "kind": "custom",
+        "formula": "abs(ratio - 1) * 100",
+        "scope": "test",
+        "unit": "%",
+        "decimals": 4,
+        "significantFigures": null,
+        "formulaRevision": "PKG8-1",
+        "justification": ""
+       }
+      ],
+      "criteria": [
+       {
+        "key": "sens_lim",
+        "parameter": "sens_dev",
+        "requirement": "NMT 0.05 % deviation from 1 where USP <41> applies (otherwise approved tolerance / 2).",
+        "comparison": "<=",
+        "lower": null,
+        "upper": 0.05,
+        "target": null,
+        "tolerance": null,
+        "unit": "%",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP1251",
+        "referenceClause": "PDF p.2",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       }
+      ],
+      "requiredEvidence": "Raw data printouts / certificates / photographs as applicable (attach to the execution).",
+      "attachmentsRequired": false,
+      "notes": "",
+      "required": true,
+      "dependency": {
+       "type": "independent",
+       "testKey": null,
+       "note": ""
+      }
+     },
+     {
+      "key": "T07",
+      "name": "T07 — Linearity (USP <1251> risk-based PQ)",
+      "description": "Source acceptance / rule (verbatim from the supplied protocol): Where USP <41> applies and this test is selected, NMT 0.05% deviation. For other uses, approved weighing tolerance divided by 2. This is a suggested PQ test under <1251>.",
+      "objective": "",
+      "category": "PQ",
+      "stage": "PQ",
+      "method": "",
+      "procedure": "Assess 3–6 points across the balance range (6 configured, per the data sheet). Record reference and indicated values and calculate deviation from the reference values. Certified weights are required for the direct method.",
+      "referenceIds": [
+       "@USP1251"
+      ],
+      "referenceClause": "USP <1251> PDF p.2",
+      "requiredMaterials": "",
+      "requiredInstruments": "",
+      "requiredReferenceStandards": "",
+      "parameter": "",
+      "unit": "g",
+      "nominal": null,
+      "dataType": "multi-level",
+      "readingsRequired": 1,
+      "replicates": 1,
+      "levels": [
+       {
+        "key": "P1",
+        "label": "Point 1",
+        "nominal": null,
+        "unit": "g",
+        "referenceNote": "Certified reference value from the weight certificate"
+       },
+       {
+        "key": "P2",
+        "label": "Point 2",
+        "nominal": null,
+        "unit": "g",
+        "referenceNote": "Certified reference value from the weight certificate"
+       },
+       {
+        "key": "P3",
+        "label": "Point 3",
+        "nominal": null,
+        "unit": "g",
+        "referenceNote": "Certified reference value from the weight certificate"
+       },
+       {
+        "key": "P4",
+        "label": "Point 4",
+        "nominal": null,
+        "unit": "g",
+        "referenceNote": "Certified reference value from the weight certificate"
+       },
+       {
+        "key": "P5",
+        "label": "Point 5",
+        "nominal": null,
+        "unit": "g",
+        "referenceNote": "Certified reference value from the weight certificate"
+       },
+       {
+        "key": "P6",
+        "label": "Point 6",
+        "nominal": null,
+        "unit": "g",
+        "referenceNote": "Certified reference value from the weight certificate"
+       }
+      ],
+      "conditions": "",
+      "fields": [],
+      "calculations": [
+       {
+        "key": "lin_dev",
+        "label": "Deviation from reference",
+        "kind": "pct-error",
+        "formula": "",
+        "scope": "per-level",
+        "unit": "%",
+        "decimals": 4,
+        "significantFigures": null,
+        "formulaRevision": "PKG8-1",
+        "justification": ""
+       }
+      ],
+      "criteria": [
+       {
+        "key": "lin_lim",
+        "parameter": "lin_dev",
+        "requirement": "NMT 0.05 % deviation where USP <41> applies (otherwise approved tolerance / 2).",
+        "comparison": "abs<=",
+        "lower": null,
+        "upper": null,
+        "target": null,
+        "tolerance": 0.05,
+        "unit": "%",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP1251",
+        "referenceClause": "PDF p.2",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       }
+      ],
+      "requiredEvidence": "Raw data printouts / certificates / photographs as applicable (attach to the execution).",
+      "attachmentsRequired": false,
+      "notes": "Source allows 3–6 points; the data sheet has 6 rows. If fewer points are justified, edit the levels in the draft before technical review.",
+      "required": true,
+      "dependency": {
+       "type": "independent",
+       "testKey": null,
+       "note": ""
+      }
+     },
+     {
+      "key": "T08",
+      "name": "T08 — Eccentricity (USP <1251> risk-based PQ)",
+      "description": "Source acceptance / rule (verbatim from the supplied protocol): Where USP <41> applies and this test is selected, NMT 0.05% deviation between off-center and center readings. For other uses, approved weighing tolerance divided by 2. Confirm load limit in the manufacturer manual.",
+      "objective": "",
+      "category": "PQ",
+      "stage": "PQ",
+      "method": "",
+      "procedure": "Place the test load at the center and four quadrants. Test load usually should be 30% of capacity or higher (66 g for 220 g), subject to the manufacturer's upper limit. Record each position and the center reading.",
+      "referenceIds": [
+       "@USP1251"
+      ],
+      "referenceClause": "USP <1251> PDF p.2",
+      "requiredMaterials": "",
+      "requiredInstruments": "",
+      "requiredReferenceStandards": "",
+      "parameter": "",
+      "unit": "",
+      "nominal": null,
+      "dataType": "calculated",
+      "readingsRequired": 0,
+      "replicates": 1,
+      "levels": [],
+      "conditions": "",
+      "fields": [
+       {
+        "key": "load",
+        "label": "Test load",
+        "type": "number",
+        "unit": "g",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "center",
+        "label": "Center reading",
+        "type": "number",
+        "unit": "g",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "q1",
+        "label": "Quadrant 1 reading",
+        "type": "number",
+        "unit": "g",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "q2",
+        "label": "Quadrant 2 reading",
+        "type": "number",
+        "unit": "g",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "q3",
+        "label": "Quadrant 3 reading",
+        "type": "number",
+        "unit": "g",
+        "required": true,
+        "options": []
+       },
+       {
+        "key": "q4",
+        "label": "Quadrant 4 reading",
+        "type": "number",
+        "unit": "g",
+        "required": true,
+        "options": []
+       }
+      ],
+      "calculations": [
+       {
+        "key": "ecc_1",
+        "label": "Quadrant 1 deviation from center",
+        "kind": "custom",
+        "formula": "abs(q1 - center) / center * 100",
+        "scope": "test",
+        "unit": "%",
+        "decimals": 4,
+        "significantFigures": null,
+        "formulaRevision": "PKG8-1",
+        "justification": ""
+       },
+       {
+        "key": "ecc_2",
+        "label": "Quadrant 2 deviation from center",
+        "kind": "custom",
+        "formula": "abs(q2 - center) / center * 100",
+        "scope": "test",
+        "unit": "%",
+        "decimals": 4,
+        "significantFigures": null,
+        "formulaRevision": "PKG8-1",
+        "justification": ""
+       },
+       {
+        "key": "ecc_3",
+        "label": "Quadrant 3 deviation from center",
+        "kind": "custom",
+        "formula": "abs(q3 - center) / center * 100",
+        "scope": "test",
+        "unit": "%",
+        "decimals": 4,
+        "significantFigures": null,
+        "formulaRevision": "PKG8-1",
+        "justification": ""
+       },
+       {
+        "key": "ecc_4",
+        "label": "Quadrant 4 deviation from center",
+        "kind": "custom",
+        "formula": "abs(q4 - center) / center * 100",
+        "scope": "test",
+        "unit": "%",
+        "decimals": 4,
+        "significantFigures": null,
+        "formulaRevision": "PKG8-1",
+        "justification": ""
+       }
+      ],
+      "criteria": [
+       {
+        "key": "ecc_1_lim",
+        "parameter": "ecc_1",
+        "requirement": "NMT 0.05 % deviation between off-center and center readings (where USP <41> applies).",
+        "comparison": "<=",
+        "lower": null,
+        "upper": 0.05,
+        "target": null,
+        "tolerance": null,
+        "unit": "%",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP1251",
+        "referenceClause": "PDF p.2",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       },
+       {
+        "key": "ecc_2_lim",
+        "parameter": "ecc_2",
+        "requirement": "NMT 0.05 % deviation between off-center and center readings (where USP <41> applies).",
+        "comparison": "<=",
+        "lower": null,
+        "upper": 0.05,
+        "target": null,
+        "tolerance": null,
+        "unit": "%",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP1251",
+        "referenceClause": "PDF p.2",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       },
+       {
+        "key": "ecc_3_lim",
+        "parameter": "ecc_3",
+        "requirement": "NMT 0.05 % deviation between off-center and center readings (where USP <41> applies).",
+        "comparison": "<=",
+        "lower": null,
+        "upper": 0.05,
+        "target": null,
+        "tolerance": null,
+        "unit": "%",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP1251",
+        "referenceClause": "PDF p.2",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       },
+       {
+        "key": "ecc_4_lim",
+        "parameter": "ecc_4",
+        "requirement": "NMT 0.05 % deviation between off-center and center readings (where USP <41> applies).",
+        "comparison": "<=",
+        "lower": null,
+        "upper": 0.05,
+        "target": null,
+        "tolerance": null,
+        "unit": "%",
+        "levelKey": null,
+        "sourceClass": "pharmacopoeial",
+        "referenceId": "@USP1251",
+        "referenceClause": "PDF p.2",
+        "justification": "",
+        "verificationStatus": "pending-technical-verification",
+        "verificationEvidence": "",
+        "conflictNote": ""
+       }
+      ],
+      "requiredEvidence": "Raw data printouts / certificates / photographs as applicable (attach to the execution).",
+      "attachmentsRequired": false,
+      "notes": "",
+      "required": true,
+      "dependency": {
+       "type": "independent",
+       "testKey": null,
+       "note": ""
+      }
+     }
+    ]
+   }
+  ],
+  "gaps": [
+   {
+    "key": "B1",
+    "title": "Historical balance record cannot substantiate USP <41> repeatability",
+    "description": "The supplied historical QC-I-074 record contains six repeatability readings and a ±0.0004 g deviation limit. USP <41> requires NLT 10 weighings; the ±0.0004 g limit is not substituted for the 0.10 % accuracy criterion or the <1251> criteria. Re-execution under this protocol is required.",
+    "testKey": "T04",
+    "specifications": [
+     {
+      "label": "USP <41>",
+      "value": null,
+      "displayValue": "NLT 10 weighings; 2s_eff/m ≤ 0.10 %",
+      "sourceClass": "pharmacopoeial",
+      "referenceId": "@USP41",
+      "clause": "PDF p.1"
+     },
+     {
+      "label": "Historical record QC-I-074",
+      "value": null,
+      "displayValue": "6 readings; ±0.0004 g",
+      "sourceClass": "institutional",
+      "referenceId": "@PKG",
+      "clause": "Rev.01 §11"
+     }
+    ],
+    "unit": "g",
+    "assessment": "",
+    "claimRestriction": ""
+   },
+   {
+    "key": "B2",
+    "title": "Intended smallest net sample weight not defined",
+    "description": "The QC owner must define the intended smallest net sample weight before the <41> repeatability and minimum-weight decisions (Rev.01 §6, §15). No value was invented.",
+    "testKey": "T05",
+    "specifications": [
+     {
+      "label": "CAL-QC-BAL-001 Rev.01",
+      "value": null,
+      "displayValue": "Required QC-owner input",
+      "sourceClass": "institutional",
+      "referenceId": "@PKG",
+      "clause": "§6, §15"
+     }
+    ],
+    "unit": "g",
+    "assessment": "",
+    "claimRestriction": ""
+   }
+  ]
+ }
+}

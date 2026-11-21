@@ -184,6 +184,7 @@ export const protocolsRouter = router({
 
   /* ---- v3: 8-protocol package, equipment data & specifications, calibration runs ---- */
   importPackage: protectedProcedure.mutation(({ ctx }) => run(() => workflow.importCalibrationPackage(actorOf(ctx)))),
+  adoptBalanceRev03: protectedProcedure.mutation(({ ctx }) => run(() => workflow.adoptBalanceRev03(actorOf(ctx)))),
   equipmentData: protectedProcedure.query(() => run(() => workflow.listEquipmentData())),
   equipmentDetail: protectedProcedure.input(z.object({ instrumentKey })).query(({ input }) => run(() => workflow.getEquipmentData(input.instrumentKey))),
   updateEquipment: protectedProcedure
