@@ -80,7 +80,7 @@ All eight protocols are imported as DRAFT with every criterion `PENDING TECHNICA
 |---|---|---:|---|---|---|---|
 | CAL-QC-HPLC-001 | Shimadzu LC-2030 PLUS | 10 | T01, T06 | T05 | T07, T08 | T02, T03, T04, T09, T10 |
 | CAL-QC-POL-001 | ADP220 polarimeter | 6 | T04 | T05 | T06 | T01–T03 |
-| CAL-QC-BAL-001 (Rev.01, QA pending) | Sartorius ED224S | 8 | T03 | T04 | T07 | T01, T02, T05, T06, T08 |
+| CAL-QC-BAL-001 (Rev.03 DRAFT — replaced Rev.01, see `docs/EIGHT-PROTOCOLS-INVENTORY.md`) | Sartorius ED224S | 9 | T03 | T04 | T07 | DQ, T01, T02, T05, T06 (optional), T08 |
 | CAL-QC-MOA-001 | Moisture analyzer | 6 | N/A (documented) | T05 | N/A (documented) | T01–T04, T06 |
 | CAL-QC-DIS-001 | Dissolution tester | 7 | N/A | N/A | N/A | T01–T07 |
 | CAL-QC-DISINT-001 | Disintegration tester | 7 | N/A | N/A | N/A | T01–T07 |

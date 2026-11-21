@@ -352,6 +352,7 @@ function CreateProtocol({ setNav, canAuthor }: { setNav: (n: Nav) => void; canAu
         <button type="button" className="pm-btn" disabled={adp.isPending} onClick={async () => { try { const r = await adp.mutateAsync(); await utils.protocols.invalidate(); toast.success(r.created ? "POL-QC-032D created as DRAFT" : "POL-QC-032D already exists — opening it"); setNav({ view: "detail", protocolId: r.protocolId }); } catch (e) { toast.error(errorText(e)); } }}>{adp.isPending ? "Configuring…" : "Configure POL-QC-032D draft"}</button>
       </Panel>
       <ImportPackagePanel />
+      <BalanceRev03Panel />
     </div>
   );
 }
@@ -394,7 +395,7 @@ function ImportPackagePanel() {
   return (
     <Panel title="Import the 8 calibration protocols (supplied package)">
       <p className="pm-muted" style={{ marginTop: 0 }}>
-        Imports CAL-QC-HPLC-001, POL-001, BAL-001 (Rev.01, QA pending), MOA-001, DIS-001, DISINT-001, REF-001 and UV-001 as DRAFT revisions,
+        Imports CAL-QC-HPLC-001, POL-001, BAL-001 (Rev.03 DRAFT), MOA-001, DIS-001, DISINT-001, REF-001 and UV-001 as DRAFT revisions,
         exactly as supplied. Every criterion is marked {"\u201C"}PENDING TECHNICAL VERIFICATION{"\u201D"}; values not given by the source stay
         {"\u201C"}NOT SPECIFIED IN SUPPLIED USP SOURCE{"\u201D"}. Historical records are not imported as results. Matching equipment is linked automatically
         (the balance QC-I-074 is registered if missing; the HPLC is not linked because LC-2030 PLUS ≠ QC-I-104). Running it again skips existing protocols.
@@ -415,6 +416,50 @@ function ImportPackagePanel() {
             <tbody>{result.lines.map(l => <tr key={l.protocolNumber}><td>{l.protocolNumber}</td><td><span className={`pm-badge ${l.status === "created" ? "pm-tone-ok" : l.status === "failed" ? "pm-tone-bad" : "pm-tone-muted"}`}>{l.status}</span></td><td>{l.tests}</td><td>{l.linkedEquipment ?? "— (model-level)"}</td><td className="pm-muted">{l.notes.join(" ")}</td></tr>)}</tbody>
           </table>
           {result.notes.length > 0 && <ul className="pm-muted">{result.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+const BAL03_OUTCOME: Record<string, string> = {
+  created: "Created as a new DRAFT protocol",
+  "updated-draft": "Open draft updated with the Rev.03 content",
+  "new-revision": "New draft revision created with the Rev.03 content",
+  "already-current": "Already on Rev.03 — nothing changed",
+};
+
+/** Replaces the CAL-QC-BAL-001 Rev.01 content already in the system with the supplied Rev.03 (history preserved). */
+function BalanceRev03Panel() {
+  const utils = trpc.useUtils();
+  const adopt = trpc.protocols.adoptBalanceRev03.useMutation();
+  const [result, setResult] = useState<Awaited<ReturnType<typeof adopt.mutateAsync>> | null>(null);
+  return (
+    <Panel title="Analytical balance — adopt CAL-QC-BAL-001 Rev.03 (replaces Rev.01)">
+      <p className="pm-muted" style={{ marginTop: 0 }}>
+        Applies the supplied <b>CAL-QC-BAL-001 Rev.03</b> (CAL-QC-BAL-001_Rev03_DRAFT_Expanded.pdf, 21-Nov-2026 — DRAFT, technical review / QA approval required)
+        in place of the Rev.01 content. An open draft is updated; a released revision is <b>kept unchanged</b> and a new draft revision is created, so every
+        earlier revision and its audit trail remain in history. Rev.03 adds DQ/URS, the proposed 20–25 °C / 40–60 %RH site window, the reference-weight
+        register and explicit worksheets, and removes the previously assumed numeric limits for accuracy, sensitivity, linearity and eccentricity (record-only until
+        the current USP text / approved method defines them). All criteria stay PENDING TECHNICAL VERIFICATION; this does not mean the balance passed.
+      </p>
+      <button type="button" className="pm-btn primary" disabled={adopt.isPending} onClick={async () => {
+        if (!window.confirm("Replace the CAL-QC-BAL-001 content with Rev.03? Earlier revisions stay in history.")) return;
+        try {
+          const r = await adopt.mutateAsync();
+          setResult(r);
+          await utils.protocols.invalidate();
+          toast.success(`CAL-QC-BAL-001: ${BAL03_OUTCOME[r.outcome]} (revision ${r.revisionNumber})`);
+        } catch (e) { toast.error(errorText(e)); }
+      }}>{adopt.isPending ? "Applying…" : "Adopt Rev.03"}</button>
+      {result && (
+        <div style={{ marginTop: 12 }}>
+          <p><span className={`pm-badge ${result.outcome === "already-current" ? "pm-tone-muted" : "pm-tone-ok"}`}>{BAL03_OUTCOME[result.outcome]}</span>{" "}
+            Revision {result.revisionNumber}{result.previousRevisionNumber ? ` (previous: revision ${result.previousRevisionNumber})` : ""} · Linked equipment: {result.linkedEquipment ?? "— (model-level)"}</p>
+          <ul className="pm-muted">
+            {result.referencesCreated.length > 0 && <li>References added (pending verification): {result.referencesCreated.join(", ")}</li>}
+            {result.notes.map((n, i) => <li key={i}>{n}</li>)}
+          </ul>
         </div>
       )}
     </Panel>

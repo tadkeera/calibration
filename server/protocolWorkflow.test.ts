@@ -9,7 +9,12 @@ import { closeLocalDatabase, createLocalUser, localConnection } from "./localDb"
 import * as svc from "./protocols/service";
 import * as wf from "./protocols/workflowService";
 import { sqliteProtocolStore } from "./protocols/sqliteStore";
-import { PACKAGE_PROTOCOLS } from "../shared/protocols/package8";
+import { BAL_REV01_SPEC_SOURCES, PACKAGE_PROTOCOLS, PACKAGE_REFERENCES } from "../shared/protocols/package8";
+import { remapReferencePlaceholders } from "../shared/protocols/adp220";
+import { readFileSync } from "node:fs";
+import { ALLOWED_STATUS_CHANGES } from "../shared/protocols/model";
+
+const balRev01 = JSON.parse(readFileSync(new URL("./fixtures/bal-rev01-content.json", import.meta.url), "utf8")) as { sourceRevision: string; content: unknown };
 import { allCriteria, type ProtocolContentInput } from "../shared/protocols/model";
 import type { EquipmentIdentity } from "../shared/protocols/equipment";
 
@@ -67,7 +72,7 @@ describe("calibration workflow v3 (SQLite store)", () => {
     expect(first.failed).toBe(0);
     expect(first.created).toBe(8);
     expect(first.lines.map(l => [l.protocolNumber, l.tests])).toEqual([
-      ["CAL-QC-HPLC-001", 10], ["CAL-QC-POL-001", 6], ["CAL-QC-BAL-001", 8], ["CAL-QC-MOA-001", 6],
+      ["CAL-QC-HPLC-001", 10], ["CAL-QC-POL-001", 6], ["CAL-QC-BAL-001", 9], ["CAL-QC-MOA-001", 6],
       ["CAL-QC-DIS-001", 7], ["CAL-QC-DISINT-001", 7], ["CAL-QC-REF-001", 6], ["CAL-QC-UV-001", 8],
     ]);
     // HPLC.pdf documents an LC-2030 PLUS; the registered HPLC is LC-40B XR → not linked (conflict preserved as a gap).
@@ -84,8 +89,9 @@ describe("calibration workflow v3 (SQLite store)", () => {
       expect(allCriteria(rev.revision.content).every(c => c.criterion.verificationStatus === "pending-technical-verification")).toBe(true);
     }
     const bal = await svc.getRevision(admin, first.lines[2].revisionId!);
-    expect(bal.revision.content.gaps.map(g => g.key)).toEqual(["B1", "B2"]);
-    const t04 = bal.revision.content.sections[0].tests.find(t => t.key === "T04")!;
+    expect(bal.revision.content.gaps.map(g => g.key)).toEqual(["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B9", "B10"]);
+    expect(balance.specs.mfrRepeatability.source).toMatch(/^UNVERIFIED/);
+    const t04 = bal.revision.content.sections[1].tests.find(t => t.key === "T04")!;
     expect(t04.readingsRequired).toBe(10);
     // POL-QC-032D is not touched; a second import never overwrites.
     const again = await wf.importCalibrationPackage(author);
@@ -237,6 +243,68 @@ describe("calibration workflow v3 (SQLite store)", () => {
     expect(() => localConnection().prepare("UPDATE protocol_runs SET measurements = '{}' WHERE id = ?").run(rid)).toThrow(/immutable/);
     // segregation of duties remains enforced by the existing execution review
     expect((await errorOf(svc.reviewExecution(author, { executionId: rec.executionId, action: "review", comment: "Self review", password: PW }))).message).toMatch(/segregation|own execution|executor/i);
+  });
+
+  it("adopts CAL-QC-BAL-001 Rev.03 over an existing Rev.01 draft and over a released Rev.01, preserving history", async () => {
+    // Recreate the state left by PR #6: BAL revision 1 holds the Rev.01 content; balance specs carry the Rev.01 sources.
+    const { rows: refRows } = await svc.internals.referenceLookup();
+    const map = Object.fromEntries(PACKAGE_REFERENCES.map(r => [r.placeholder, refRows.find(x => x.code === r.code)?.id]).filter(([, v]) => v)) as Record<string, string>;
+    const balRow = await protocolByNumber("CAL-QC-BAL-001");
+    const detail0 = await svc.getProtocolDetail(balRow.id);
+    const rev1 = await svc.getRevision(admin, detail0.protocol.currentRevisionId!);
+    const rev01Content = remapReferencePlaceholders(balRev01.content as never, map) as ProtocolContentInput;
+    (rev01Content as { equipmentLinks: unknown }).equipmentLinks = rev1.revision.content.equipmentLinks;
+    await svc.saveDraft(author, { revisionId: rev1.revision.id, expectedRowVersion: rev1.revision.rowVersion, content: rev01Content, reason: "Test fixture: Rev.01 content as imported by PR #6" });
+    const eq0 = (await wf.listEquipmentData()).find(e => e.instrumentKey === "balance")!;
+    const rev01Specs = Object.fromEntries(Object.entries(eq0.specs).map(([k, v]) => [k, BAL_REV01_SPEC_SOURCES[k] ? { ...v, source: BAL_REV01_SPEC_SOURCES[k].source } : v]));
+    rev01Specs.panDiameter = { value: 80, unit: "mm", source: "Nameplate read by user" }; // a user edit that must be left alone
+    await wf.updateEquipmentData(author, { instrumentKey: "balance", expectedSpecsRowVersion: eq0.specsRowVersion, identity: eq0.identity, specs: rev01Specs, reason: "Test fixture: Rev.01 sources", reference: "" });
+    const before = await svc.getRevision(admin, rev1.revision.id);
+    expect(before.revision.content.gaps.map(g => g.key)).toEqual(["B1", "B2"]);
+
+    expect((await errorOf(wf.adoptBalanceRev03(viewer))).code).toBe("FORBIDDEN");
+    // 1) Open draft → content replaced in place through the audited draft save.
+    const a = await wf.adoptBalanceRev03(author);
+    expect(a).toMatchObject({ outcome: "updated-draft", revisionNumber: 1, linkedEquipment: expect.stringMatching(/QC-I-074/) });
+    expect(a.referencesCreated).toEqual([]); // already seeded by the package import
+    expect(a.equipmentSpecsRelabelled.sort()).toEqual(Object.keys(BAL_REV01_SPEC_SOURCES).filter(k => k !== "panDiameter").sort());
+    const after = await svc.getRevision(admin, rev1.revision.id);
+    expect(after.revision.content.sections.flatMap(x => x.tests).map(t => t.key)).toEqual(["DQ", "T01", "T02", "T03", "T04", "T05", "T06", "T07", "T08"]);
+    expect(after.revision.content.identification.description).toMatch(/CAL-QC-BAL-001_Rev03_DRAFT_Expanded\.pdf/);
+    expect(after.revision.content.equipmentLinks).toEqual(rev1.revision.content.equipmentLinks);
+    expect(after.revision.status).toBe("draft");
+    const audit = await svc.listAudit({ protocolId: balRow.id });
+    expect(audit.find(x => x.action === "revision.content-updated" && /Rev\.03/.test(x.reason ?? ""))).toBeTruthy();
+    const eq1 = (await wf.listEquipmentData()).find(e => e.instrumentKey === "balance")!;
+    expect(eq1.specs.mfrRepeatability).toMatchObject({ value: 0.0001, source: expect.stringMatching(/^UNVERIFIED/) });
+    expect(eq1.specs.panDiameter).toEqual({ value: 80, unit: "mm", source: "Nameplate read by user" });
+    // Idempotent.
+    expect((await wf.adoptBalanceRev03(author)).outcome).toBe("already-current");
+
+    // 2) Released Rev.01 → kept unchanged; Rev.03 goes into a NEW draft revision.
+    //    Fixture: put Rev.01 back, then walk revision 1 through the allowed status chain to "released".
+    const cur = await svc.getRevision(admin, rev1.revision.id);
+    await svc.saveDraft(author, { revisionId: rev1.revision.id, expectedRowVersion: cur.revision.rowVersion, content: rev01Content, reason: "Test fixture: back to Rev.01" });
+    const db = localConnection();
+    const chain = ["draft", "technical-review-pending", "technical-review-in-progress", "technically-reviewed", "qa-review-pending", "qa-review-in-progress", "approved", "released"];
+    chain.slice(1).forEach((to, i) => {
+      expect(ALLOWED_STATUS_CHANGES.some(([x, y]) => x === chain[i] && y === to)).toBe(true);
+      db.prepare(`UPDATE protocol_revisions SET status = ?, locked = ? WHERE id = ?`).run(to, ["approved", "released"].includes(to) ? 1 : 0, rev1.revision.id);
+    });
+    db.prepare(`UPDATE protocols SET status = 'released', released_revision_id = ?, released_revision_number = 1 WHERE id = ?`).run(rev1.revision.id, balRow.id);
+    const releasedHash = (await svc.getRevision(admin, rev1.revision.id)).revision.contentHash;
+    const b = await wf.adoptBalanceRev03(author);
+    expect(b).toMatchObject({ outcome: "new-revision", revisionNumber: 2, previousRevisionNumber: 1 });
+    const old = await svc.getRevision(admin, rev1.revision.id);
+    expect(old.revision.status).toBe("released");
+    expect(old.revision.contentHash).toBe(releasedHash);
+    expect(old.revision.content.gaps.map(g => g.key)).toEqual(["B1", "B2"]);
+    const r2 = await svc.getRevision(admin, b.revisionId);
+    expect(r2.revision.status).toBe("draft");
+    expect(r2.revision.content.gaps.map(g => g.key)).toContain("B10");
+    expect(r2.revision.content.equipmentLinks).toEqual(rev1.revision.content.equipmentLinks);
+    expect((await wf.adoptBalanceRev03(author)).outcome).toBe("already-current");
+    expect(balRev01.sourceRevision).toBe("01");
   });
 
   it("keeps the package definitions in register order", () => {

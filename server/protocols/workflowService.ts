@@ -25,14 +25,16 @@ import {
 import { evaluateExecution, type Measurements } from "../../shared/protocols/evaluate";
 import type { ExecutionDeviation } from "../../shared/protocols/executionReview";
 import { EDITABLE_STATUSES, LOCKED_STATUSES, parseProtocolContent, type ProtocolContent } from "../../shared/protocols/model";
-import { PACKAGE_IMPORT_REASON, PACKAGE_NEW_EQUIPMENT, PACKAGE_PROTOCOLS, PACKAGE_REFERENCES } from "../../shared/protocols/package8";
+import { BAL_REV01_SPEC_SOURCES, BAL_REV03, BAL_REV03_REASON, PACKAGE_IMPORT_REASON, PACKAGE_NEW_EQUIPMENT, PACKAGE_PROTOCOLS, PACKAGE_REFERENCES } from "../../shared/protocols/package8";
 import { remapReferencePlaceholders } from "../../shared/protocols/adp220";
 import { buildRunSteps, canonicalStepBlockers, naMeasurementKey, runApprovalBlockers } from "../../shared/protocols/runWorkflow";
 import {
   ProtocolError,
   compatibilityProblems,
   createProtocol,
+  createRevision,
   equipmentRegistry,
+  saveDraft,
 
   internals,
   normalizeMaker,
@@ -580,6 +582,24 @@ export async function logRunPdf(actor: Actor, input: { runId: string; documentSt
 /* Import of the supplied 8-protocol package                            */
 /* ------------------------------------------------------------------ */
 
+/** Seeds the package references that do not exist yet (pending verification); returns placeholder → id. */
+async function seedPackageReferences(actor: Actor) {
+  const { rows: refs } = await referenceLookup();
+  const map: Record<string, string> = {};
+  const referencesCreated: string[] = [];
+  for (const seed of PACKAGE_REFERENCES) {
+    const found = refs.find(r => r.code === seed.code);
+    if (found) {
+      map[seed.placeholder] = found.id;
+      continue;
+    }
+    const res = await saveReference(actor, { code: seed.code, title: seed.title, issuer: seed.issuer, referenceType: seed.referenceType, documentNumber: seed.documentNumber, edition: seed.edition, revision: seed.revision, publicationDate: seed.publicationDate, effectiveDate: "", expiryDate: "", reviewDate: "", sourceUrl: seed.sourceUrl, documentUrl: "", applicableSection: seed.applicableSection, applicableClause: "", verificationStatus: "pending-verification", notes: seed.notes, reason: "Reference seeded by the 8-protocol package import (verification pending)" });
+    map[seed.placeholder] = res.id;
+    referencesCreated.push(seed.code);
+  }
+  return { map, referencesCreated };
+}
+
 export type ImportLine = { protocolNumber: string; status: "created" | "skipped-existing" | "failed"; protocolId: string | null; revisionId: string | null; tests: number; linkedEquipment: string | null; notes: string[] };
 
 /**
@@ -587,7 +607,7 @@ export type ImportLine = { protocolNumber: string; status: "created" | "skipped-
  * (reported as skipped). Every protocol is created as a DRAFT with all
  * criteria PENDING TECHNICAL VERIFICATION. References are seeded as
  * pending-verification. Creates the analytical-balance equipment record
- * (CAL-QC-BAL-001 Rev.01 §4) when it is not registered yet.
+ * (CAL-QC-BAL-001 Rev.03 §4) when it is not registered yet.
  */
 export async function importCalibrationPackage(actor: Actor) {
   await requireDuty(actor, "author");
@@ -604,7 +624,7 @@ export async function importCalibrationPackage(actor: Actor) {
     const identity: EquipmentIdentity = { instrumentId: eq.instrumentId, manufacturer: eq.manufacturer, model: eq.model, serialNumber: eq.serialNumber, nameEn: eq.nameEn, nameAr: eq.nameAr, sopNumber: eq.sopNumber, formNumber: eq.formNumber };
     const specs: SpecMap = Object.fromEntries(Object.entries(eq.specifications).map(([k, v]) => [k, { value: v.value, unit: v.unit, source: v.source }]));
     if (status.workflowOk) {
-      await createEquipmentData(actor, { instrumentKey: eq.instrumentKey, equipmentType: eq.equipmentType, identity, specs, reason: `Registered from ${eq.source}`, reference: "CAL-QC-BAL-001 Rev.01 §4" });
+      await createEquipmentData(actor, { instrumentKey: eq.instrumentKey, equipmentType: eq.equipmentType, identity, specs, reason: `Registered from ${eq.source}`, reference: eq.reference });
       notes.push(`${eq.instrumentId} (${eq.model}, S/N ${eq.serialNumber}): new equipment record created with ${Object.keys(specs).length} specification values from the source.`);
     } else {
       if (actor.role === "viewer") throw new ProtocolError("FORBIDDEN", "Viewers cannot register equipment");
@@ -615,19 +635,7 @@ export async function importCalibrationPackage(actor: Actor) {
   registry = await equipmentRegistry();
 
   // 2. References (pending verification).
-  const { rows: refs } = await referenceLookup();
-  const map: Record<string, string> = {};
-  const referencesCreated: string[] = [];
-  for (const seed of PACKAGE_REFERENCES) {
-    const found = refs.find(r => r.code === seed.code);
-    if (found) {
-      map[seed.placeholder] = found.id;
-      continue;
-    }
-    const res = await saveReference(actor, { code: seed.code, title: seed.title, issuer: seed.issuer, referenceType: seed.referenceType, documentNumber: seed.documentNumber, edition: seed.edition, revision: seed.revision, publicationDate: seed.publicationDate, effectiveDate: "", expiryDate: "", reviewDate: "", sourceUrl: seed.sourceUrl, documentUrl: "", applicableSection: seed.applicableSection, applicableClause: "", verificationStatus: "pending-verification", notes: seed.notes, reason: "Reference seeded by the 8-protocol package import (verification pending)" });
-    map[seed.placeholder] = res.id;
-    referencesCreated.push(seed.code);
-  }
+  const { map, referencesCreated } = await seedPackageReferences(actor);
 
   // 3. Protocols.
   const existing = new Set((await protocolStore().select<{ protocol_number: string }>("protocols", { columns: ["protocol_number"] })).map(p => p.protocol_number));
@@ -663,3 +671,118 @@ export async function importCalibrationPackage(actor: Actor) {
 }
 
 
+
+/* ------------------------------------------------------------------ */
+/* CAL-QC-BAL-001 Rev.03 replaces the Rev.01 content (history kept)     */
+/* ------------------------------------------------------------------ */
+
+const BAL_REV03_MARKER = BAL_REV03.sourceFile;
+const CLOSED_REVISION_STATUSES = ["released", "superseded", "retired", "rejected"];
+
+export type BalanceRev03Result = {
+  outcome: "created" | "updated-draft" | "new-revision" | "already-current";
+  protocolId: string;
+  revisionId: string;
+  revisionNumber: number;
+  previousRevisionNumber: number | null;
+  linkedEquipment: string | null;
+  referencesCreated: string[];
+  equipmentSpecsRelabelled: string[];
+  notes: string[];
+};
+
+/**
+ * Adopts CAL-QC-BAL-001 Rev.03 in place of the Rev.01 content already in the system.
+ *  - no protocol yet            → created as a new DRAFT (same as the package import);
+ *  - open draft / changes-requested revision → content replaced through saveDraft (audited diff);
+ *  - otherwise (released / superseded…) → a NEW revision is created and filled with Rev.03;
+ *    the released revision stays in force (and in history) until Rev.03 completes review and QA approval;
+ *  - a revision under review / approval blocks the replacement (it must be returned first).
+ * The content stays a DRAFT with every criterion PENDING TECHNICAL VERIFICATION; existing
+ * equipment links are kept. Balance equipment specifications are only re-labelled as
+ * UNVERIFIED where they still carry the untouched Rev.01 import value + source.
+ */
+export async function adoptBalanceRev03(actor: Actor): Promise<BalanceRev03Result> {
+  await requireDuty(actor, "author");
+  const notes: string[] = [];
+  const { map, referencesCreated } = await seedPackageReferences(actor);
+  const fresh = parseProtocolContent(remapReferencePlaceholders(BAL_REV03.content, map));
+  const registry = await equipmentRegistry();
+  const entry = registry.find(e => e.instrumentKey === BAL_REV03.instrumentKey);
+  const equipmentSpecsRelabelled = await relabelBalanceSpecs(actor, notes);
+
+  const [protocol] = await protocolStore().select<ProtocolRow>("protocols", { where: { protocol_number: BAL_REV03.number }, limit: 1 });
+  if (!protocol) {
+    let linked: string | null = null;
+    const problems = entry ? compatibilityProblems({ ...fresh, identification: { ...fresh.identification, associationType: "model" } }, entry) : ["Equipment balance not registered"];
+    if (entry && !problems.length) {
+      fresh.equipmentLinks = [{ instrumentKey: entry.instrumentKey, instrumentId: entry.instrumentId, serialNumber: entry.serialNumber, manufacturer: entry.manufacturer, model: entry.model, compatibilityNote: `Linked at Rev.03 adoption (${BAL_REV03.sourceFile}).` }];
+      linked = `${entry.instrumentId} (${entry.model}, S/N ${entry.serialNumber})`;
+    } else {
+      fresh.identification.associationType = "model";
+      notes.push(`Not linked: ${problems.join("; ")}. Created as model-associated; run the package import first to register QC-I-074.`);
+    }
+    const res = await createProtocol(actor, { content: fresh, reason: BAL_REV03_REASON });
+    return { outcome: "created", protocolId: res.protocolId, revisionId: res.revisionId, revisionNumber: 1, previousRevisionNumber: null, linkedEquipment: linked, referencesCreated, equipmentSpecsRelabelled, notes };
+  }
+
+  const revisions = await protocolStore().select<RevisionRow>("protocol_revisions", { where: { protocol_id: protocol.id }, order: [{ column: "revision_number", desc: true }] });
+  const latest = revisions[0];
+  const open = revisions.find(r => !CLOSED_REVISION_STATUSES.includes(r.status));
+  const current = open ?? latest;
+  if (current && current.content.identification.description.includes(BAL_REV03_MARKER)) {
+    notes.push(`Revision ${current.revision_number} already carries the Rev.03 content — nothing changed.`);
+    return { outcome: "already-current", protocolId: protocol.id, revisionId: current.id, revisionNumber: current.revision_number, previousRevisionNumber: null, linkedEquipment: linkText(current.content), referencesCreated, equipmentSpecsRelabelled, notes };
+  }
+  if (open && !EDITABLE_STATUSES.includes(open.status))
+    throw new ProtocolError("PRECONDITION_FAILED", `Revision ${open.revision_number} of ${protocol.protocol_number} is ${open.status} — it must be returned for changes (or rejected) before the Rev.03 content can replace it.`);
+
+  let target = open;
+  let outcome: BalanceRev03Result["outcome"] = "updated-draft";
+  const previousRevisionNumber = (open ?? latest)?.revision_number ?? null;
+  if (!target) {
+    const rev = await createRevision(actor, { protocolId: protocol.id, reason: BAL_REV03_REASON, description: "CAL-QC-BAL-001 Rev.03 (DRAFT) — supersedes the Rev.01 content" });
+    target = await loadRevision(rev.revisionId);
+    outcome = "new-revision";
+    notes.push(`Revision ${previousRevisionNumber} (${latest.status}) is preserved unchanged; it remains in force until revision ${rev.revisionNumber} completes technical review and QA approval.`);
+  }
+  // Keep the equipment association the system already has (user-managed), Rev.03 content otherwise.
+  const prior = parseProtocolContent(target.content);
+  fresh.equipmentLinks = prior.equipmentLinks;
+  fresh.identification.associationType = prior.identification.associationType;
+  if (!fresh.equipmentLinks.length && entry && !compatibilityProblems({ ...fresh, identification: { ...fresh.identification, associationType: "model" } }, entry).length) {
+    fresh.equipmentLinks = [{ instrumentKey: entry.instrumentKey, instrumentId: entry.instrumentId, serialNumber: entry.serialNumber, manufacturer: entry.manufacturer, model: entry.model, compatibilityNote: `Linked at Rev.03 adoption (${BAL_REV03.sourceFile}).` }];
+    fresh.identification.associationType = "equipment";
+  }
+  const saved = await saveDraft(actor, { revisionId: target.id, expectedRowVersion: target.row_version, content: fresh, reason: BAL_REV03_REASON });
+  notes.push(`${saved.changes} content change(s) recorded in the audit trail (revision.content-updated).`);
+  return { outcome, protocolId: protocol.id, revisionId: target.id, revisionNumber: target.revision_number, previousRevisionNumber, linkedEquipment: linkText(fresh), referencesCreated, equipmentSpecsRelabelled, notes };
+}
+
+function linkText(content: ProtocolContent) {
+  const l = content.equipmentLinks[0];
+  return l ? `${l.instrumentId} (${l.model}, S/N ${l.serialNumber})` : null;
+}
+
+/** Re-labels untouched Rev.01-imported balance specifications as UNVERIFIED (Rev.03 §4); never changes values or user edits. */
+async function relabelBalanceSpecs(actor: Actor, notes: string[]) {
+  const status = await protocolStore().schemaStatus();
+  if (!status.workflowOk) return [];
+  const seed = PACKAGE_NEW_EQUIPMENT[0];
+  const item = (await listEquipmentData()).find(e => e.instrumentKey === seed.instrumentKey);
+  if (!item) return [];
+  const specs: SpecMap = { ...(item.specs as SpecMap) };
+  const relabelled: string[] = [];
+  for (const [key, old] of Object.entries(BAL_REV01_SPEC_SOURCES)) {
+    const cur = specs[key];
+    const next = (seed.specifications as Record<string, { value: number | string; unit: string; source: string }>)[key];
+    if (cur && next && cur.value === old.value && cur.source === old.source) {
+      specs[key] = { value: cur.value, unit: cur.unit, source: next.source };
+      relabelled.push(key);
+    }
+  }
+  if (!relabelled.length) return [];
+  await updateEquipmentData(actor, { instrumentKey: item.instrumentKey, expectedSpecsRowVersion: item.specsRowVersion, identity: item.identity, specs, equipmentType: item.equipmentType, reason: "CAL-QC-BAL-001 Rev.03 §4: specification sources re-labelled (capacity/d: verify from nameplate/manual; manufacturer repeatability, linearity, response time, pan size, operating range, calibration weight: UNVERIFIED — not acceptance criteria). Values unchanged.", reference: "CAL-QC-BAL-001 Rev.03 §4" });
+  notes.push(`${item.identity.instrumentId}: ${relabelled.length} specification source(s) re-labelled per Rev.03 §4 (values unchanged; user-edited values untouched).`);
+  return relabelled;
+}

@@ -36,18 +36,18 @@
   {
     "protocol": "CAL-QC-BAL-001",
     "equipment": "QC-I-074",
-    "tests": 8,
+    "tests": 9,
     "steps": 9,
     "overall": "INCOMPLETE",
     "counts": {
       "PASS": 0,
       "FAIL": 0,
       "INCOMPLETE": 7,
-      "NOT APPLICABLE": 0,
+      "NOT APPLICABLE": 1,
       "UNDER REVIEW": 1
     },
-    "pages": 8,
-    "documentId": "RUN-CAL-QC-BAL-001-20261120-6CD9BC-V2-0960C0B4",
+    "pages": 10,
+    "documentId": "RUN-CAL-QC-BAL-001-20261121-18FF42-V2-F332F5B6",
     "file": "CAL-QC-BAL-001.pdf"
   },
   {

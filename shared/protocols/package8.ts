@@ -96,6 +96,34 @@ export const PACKAGE_REFERENCES: PackageReference[] = [
     notes: "Cited by CAL-QC-BAL-001 Rev.01 §3–4. Verify against the controlled manufacturer copy held by the site before execution.",
   },
   {
+    placeholder: "@SOPQC105D",
+    code: "SOP-QC-105D",
+    title: "Site SOP QC-105D and related procedures (analytical balance use, calibration, checks, deviations, records, maintenance)",
+    issuer: "National Quality Control Laboratory",
+    referenceType: "institutional-procedure",
+    documentNumber: "QC-105D",
+    edition: "",
+    revision: "",
+    publicationDate: "",
+    sourceUrl: "",
+    applicableSection: "Site-specific use, calibration, checks, deviations, records and maintenance",
+    notes: "Cited by CAL-QC-BAL-001 Rev.03 §3. Confirm the current approved revision before execution.",
+  },
+  {
+    placeholder: "@BALREV03",
+    code: "CAL-QC-BAL-001-REV03-SRC",
+    title: "CAL-QC-BAL-001 Rev.03 — Calibration & Qualification Protocol, Analytical Balance Sartorius ED224S (supplied draft, 21-Nov-2026)",
+    issuer: "Supplied by the laboratory (CAL-QC-BAL-001_Rev03_DRAFT_Expanded.pdf, 7 pages)",
+    referenceType: "institutional-procedure",
+    documentNumber: "CAL-QC-BAL-001",
+    edition: "",
+    revision: "03",
+    publicationDate: "2026-11-21",
+    sourceUrl: "",
+    applicableSection: "§1–11, Appendices A–B",
+    notes: "Status in the source: DRAFT – TECHNICAL REVIEW / QA APPROVAL REQUIRED. Supersedes Rev.00/01/02. No execution or release is authorized until all approval gates are met.",
+  },
+  {
     placeholder: "@PKG",
     code: PACKAGE_ID,
     title: "Calibration & Qualification Protocol Package — eight device-specific protocol drafts (supplied)",
@@ -175,6 +203,8 @@ type TestDef = {
   criteria: ReturnType<typeof crit>[];
   notes?: string;
   dependsOn?: string;
+  /** false = optional / risk-based test (an unperformed optional test is reported NOT APPLICABLE). */
+  required?: boolean;
 };
 
 const test = (d: TestDef) => ({
@@ -205,7 +235,7 @@ const test = (d: TestDef) => ({
   requiredEvidence: "Raw data printouts / certificates / photographs as applicable (attach to the execution).",
   attachmentsRequired: false,
   notes: d.notes ?? "",
-  required: true,
+  required: d.required ?? true,
   dependency: d.dependsOn ? { type: "sequential" as const, testKey: d.dependsOn, note: "" } : { type: "independent" as const, testKey: null, note: "" },
 });
 
@@ -280,6 +310,10 @@ type ProtocolSpec = {
   gaps?: ReturnType<typeof gap>[];
   narrative?: Partial<ReturnType<typeof STANDARD_NARRATIVE>> & { equipmentDescription?: string; requiredMaterials?: string };
   extraDescription?: string;
+  /** Reference placeholder of the source document (default: the 8-protocol package). */
+  sourceRef?: string;
+  /** Source-specific open-items text (default: the package §15 open items). */
+  openItems?: string;
 };
 
 function build(spec: ProtocolSpec): PackageProtocol {
@@ -287,7 +321,7 @@ function build(spec: ProtocolSpec): PackageProtocol {
     `Imported from the supplied package (${spec.sourceFile}). Source document revision: Rev.${spec.sourceRevision}; source status: ${spec.sourceStatus}.`,
     "System status: DRAFT — all acceptance criteria PENDING TECHNICAL VERIFICATION. Loading this protocol does not imply that the instrument passed.",
     spec.extraDescription ?? "",
-    OPEN_ITEMS,
+    spec.openItems ?? OPEN_ITEMS,
   ]
     .filter(Boolean)
     .join("\n");
@@ -321,7 +355,7 @@ function build(spec: ProtocolSpec): PackageProtocol {
       equipmentLinks: [],
       references: [
         ...spec.references.map(([ref, supports]) => ({ referenceId: ref, supports, clause: "" })),
-        { referenceId: "@PKG", supports: `Source document ${spec.sourceFile} (Rev.${spec.sourceRevision})`, clause: "" },
+        { referenceId: spec.sourceRef ?? "@PKG", supports: `Source document ${spec.sourceFile} (Rev.${spec.sourceRevision})`, clause: "" },
       ],
       intervals: [],
       sections: spec.sections.map(s => ({ key: s.key, title: s.title, description: "", body: "", required: true, stage: s.stage, referenceIds: [], attachments: "", tests: s.tests })),
@@ -583,129 +617,306 @@ const POL = build({
 });
 
 /* ------------------------------------------------------------------ */
-/* 3. Analytical balance — CAL-QC-BAL-001 Rev.01 (QA pending)          */
+/* 3. Analytical balance — CAL-QC-BAL-001 Rev.03 (DRAFT, supersedes Rev.01) */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Source: CAL-QC-BAL-001_Rev03_DRAFT_Expanded.pdf (21-Nov-2026, 7 pages).
+ * Rev.03 removes the numeric limits that Rev.01 had assumed for accuracy,
+ * sensitivity, linearity and eccentricity: they are record-only here until the
+ * current official USP text / approved site method defines them. Only the
+ * limits Rev.03 itself states are configured (repeatability prior ≤0.10 %,
+ * Mmin ≤ m, 5–100 % accuracy range, proposed 20–25 °C / 40–60 %RH window) and,
+ * like every criterion, they are PENDING TECHNICAL VERIFICATION.
+ */
+const B3 = "@BALREV03";
+const BAL_USP41 = "Use currently official document; DOI preview located: USPNF_M98780_05_01 (2025). Verify 2026 notices/IRAs before approval.";
+const BAL_USP1251 = "Use currently official document; DOI preview located: USPNF_M99963_04_01 (2025). Verify 2026 notices/IRAs before approval.";
+const URS: Array<[string, string, string]> = [
+  ["urs01", "URS-01 Intended use", "List QC tests/materials; identify which require accurate weighing."],
+  ["urs02", "URS-02 Operating range", "Routine gross/net weighing range and units."],
+  ["urs03", "URS-03 Smallest net sample weight m", "Smallest mass used by any approved method/SOP, with method reference and scientific rationale. Do not assume a value."],
+  ["urs04", "URS-04 Required tolerance", "Compendial, method-specific or approved site tolerance for each use."],
+  ["urs05", "URS-05 Capacity/readability", "Confirm 220 g and d = 0.0001 g against nameplate/manual and suitability for URS."],
+  ["urs06", "URS-06 Environment", "Approve location, temperature, RH, vibration, drafts, sunlight, power and bench (provisional window §6; site approval open)."],
+  ["urs07", "URS-07 Data and records", "Define paper/electronic record controls, audit trail, access, backup and retention."],
+  ["urs08", "URS-08 Service and maintenance", "Calibration, preventive maintenance, service and response arrangements."],
+];
+const ENV_NOTE = "PROPOSED SITE CONTROL LIMIT (Rev.03 §6) — not a confirmed Sartorius ED224S manufacturer limit and not a USP-mandated range. Enforceable only after QC, Engineering and QA approve it and confirm compatibility with the controlled manual, room capability and local SOP. If the manual specifies a narrower/different range, the manufacturer requirement governs.";
+const ECC_POS: Array<[string, string]> = [["fl", "Front-left"], ["fr", "Front-right"], ["rl", "Rear-left"], ["rr", "Rear-right"]];
 
 const BAL = build({
   number: "CAL-QC-BAL-001",
   title: "Calibration & Qualification Protocol — Analytical Balance Sartorius ED224S",
   device: "analytical balance",
   equipmentType: "Analytical Balance",
-  manufacturer: "Sartorius (Germany)",
+  manufacturer: "Sartorius",
   model: "ED224S",
   instrumentKey: "balance",
-  sourceRevision: "01",
-  sourceStatus: "INITIAL QUALIFICATION ISSUE – TECHNICAL REVIEW COMPLETED (source) / QA APPROVAL PENDING",
-  sourceFile: "CAL-QC-BAL-001_Analytical_Balance_Protocol_Rev01_DRAFT_QA_PENDING.docx",
-  references: [["@USP41", "Mandatory repeatability and accuracy requirements; minimum weight relationship"], ["@USP1251", "Installation, OQ, PQ guidance; sensitivity, linearity, eccentricity, minimum weight"], ["@USP1058", "AIQ lifecycle / IQ-OQ-PQ framework"], ["@SARTORIUS", "Instrument-specific characteristics (capacity, readability, repeatability, linearity, operating conditions)"]],
-  stages: ["IQ", "OQ", "PQ"],
-  extraDescription: "Source revision history: Rev.00 20-Nov-2026 initial generic draft (superseded); Rev.01 20-Nov-2026 identity populated, USP <41>/<1251> criteria clarified — QA approval pending. Technical review recorded in the source must be repeated/recorded in this system. The historical QC-I-074 record (6 repeatability readings, ±0.0004 g limit) is background only — USP <41> requires NLT 10 weighings (gap B1).",
+  sourceRevision: "03",
+  sourceStatus: "DRAFT – TECHNICAL REVIEW / QA APPROVAL REQUIRED",
+  sourceFile: "CAL-QC-BAL-001_Rev03_DRAFT_Expanded.pdf",
+  sourceRef: B3,
+  references: [
+    ["@USP41", `Compendial accuracy, repeatability, calibration and minimum-weight requirements when in scope. ${BAL_USP41}`],
+    ["@USP1251", `Technical guidance for weighing practice and risk-based PQ checks. ${BAL_USP1251}`],
+    ["@USP1058", "DQ/IQ/OQ/PQ lifecycle framework. Verify currently official text/status in subscribed USP-NF."],
+    ["@SARTORIUS", "Exact capacity, readability, equilibration, operating environment, load and performance specifications. Obtain controlled manual for exact instrument variant and retain copy."],
+    ["@SOPQC105D", "Site-specific use, calibration, checks, deviations, records and maintenance. Confirm current approved revision."],
+  ],
+  stages: ["DQ", "IQ", "OQ", "PQ"],
+  extraDescription:
+    "Revision history (source): Rev.00 20-Nov-2026 initial generic draft (superseded); Rev.01 20-Nov-2026 instrument identity and initial compendial review (superseded); Rev.02 21-Nov-2026 DQ/URS, test sheets and technical corrections (superseded draft); Rev.03 21-Nov-2026 provisional environmental operating window, expanded reference-weight register, explicit calculation worksheets and current USP source review — draft, not approved. Rev.03 replaces the Rev.01 content previously imported. Note: the PDF's hidden page-header layer still contains \"Rev.02\"; the visible header and the document-control table state Rev.03 (document control to correct).",
+  openItems:
+    "Open items before approval (Rev.03 §11): verify current official USP <41>, <1251>, <1058> and any revision bulletins / IRAs on the approval date; confirm the ED224S exact variant, capacity, d, equilibration and manufacturer environment limits; approve DQ/URS and intended use/tolerances; set the intended smallest net sample mass m; approve or replace the proposed temperature/RH range; attach reference-weight certificates and complete the register; approve the T07 linearity method and limit; approve the T08 eccentricity positions, denominator and limit; execute tests and resolve deviations; final technical review and QA release. No execution or release is authorized until all approval gates are met.",
   narrative: {
-    purpose: "To define and document the installation, operational and performance qualification activities required to demonstrate that the identified analytical balance is suitable for its intended pharmaceutical laboratory use.",
-    scope: "This protocol applies to Analytical Balance QC-I-074, Sartorius model ED224S, serial number 23304057. It covers IQ, OQ and risk-based PQ tests, including the compendial requirements of USP General Chapter <41> for balances used to weigh materials that must be accurately weighed. It does not replace product-specific analytical methods, approved site SOPs or any applicable monograph.",
-    equipmentDescription: "Sartorius (Germany) ED224S, serial 23304057, equipment ID QC-I-074, site SOP QC-105D. Weighing capacity 220 g; readability d = 0.0001 g; manufacturer repeatability ≤ 0.0001 g; linearity ≤ 0.0002 g; typical response ≤ 2.5 s; pan 90 mm; operating +10 to +30 °C; external calibration weight 200 g class E2 (verify). Model specifications, not measured results.",
-    requiredReferenceStandards: "Accuracy weights 5–100 % of capacity (11–220 g) with MPE or calibration uncertainty ≤ one-third of the applied test limit; sensitivity/linearity weights certified; repeatability/eccentricity weight need not be certified but must be mass-stable. Record certificate ID, calibration date, due date, uncertainty and coverage factor.",
-    finalAssessment: "The instrument may be released only when all applicable tests pass, deviations are resolved or formally assessed, records are complete, the intended minimum net sample weight is defined and QA approval is documented. A missing criterion is not automatically a pass. This protocol itself does not establish that the instrument has passed or is released.",
+    purpose: "To define documented design, installation, operational and performance qualification activities demonstrating that the identified analytical balance is fit for its approved QC laboratory intended use. This protocol defines procedures, acceptance criteria, data records, deviation controls and approval responsibilities. It does not establish that the balance has passed qualification until all required testing and approvals are complete.",
+    scope: "Applies to Analytical Balance QC-I-074, Sartorius ED224S, serial number 23304057. Includes DQ/URS, IQ, OQ and risk-based PQ. USP <41> applies when materials must be accurately weighed. Applicable monographs, approved methods/SOPs and the controlled manufacturer instructions remain applicable.",
+    responsibilities:
+      "Calibration / Validation: protocol execution/oversight, raw data, calculations, traceability, deviations and report.\nQC Equipment Owner: define intended use, m, tolerances and PQ frequency; provide methods/SOPs; approve URS.\nEngineering / Maintenance: installation, environment, power, repairs and maintenance.\nTechnical Reviewer: independent review of methods, raw data, calculations, uncertainty and deviations.\nQA: approve protocol, deviations and final release.\nDocument Control: verify controlled references, effective date and issuance.",
+    definitions:
+      "Signed relative error = 100 × (I − m_ref) / m_ref (retain sign; assess absolute value). Sample SD s of n ≥ 10 readings. s_eff = max(s, 0.41d) with verified d. Repeatability % = 100 × 2·s_eff / m (m = approved intended smallest net sample mass). Floor-only Mmin = 2000 × 0.41d (0.082 g for d = 0.0001 g; not an approved measured minimum). Linearity e_i = I_i − m_i. Eccentricity Δ_j = I_j − I_center; if % required 100 × Δ_j / m_ref (approve denominator first). (Rev.03 Appendix A)",
+    equipmentDescription:
+      "Analytical Balance, Sartorius ED224S, equipment ID QC-I-074, serial 23304057. Capacity 220 g — verify from nameplate and controlled manual. Readability / scale interval d 0.0001 g — verify from nameplate/manual. Manufacturer repeatability / linearity / response time / pan size: previously transcribed values are UNVERIFIED — do not use as acceptance criteria until exact variant documentation is attached. Room / location / bench: to be recorded during IQ. Calibration status / due date: verify before execution. Firmware / software: record if available/applicable. (Rev.03 §4)",
+    requiredReferenceStandards:
+      "No certificate identifiers, certified values or uncertainties have been supplied — none are populated. Complete the register (weight ID, nominal, certified value, class, certificate no., U / MPE (mg), k, calibration date / due date, traceability provider) from original, current certificates before testing. Verify unique ID, certificate authenticity and status, certified mass and uncertainty or MPE, coverage factor, traceability, dates, handling/storage and suitability for the load. For USP <41> accuracy, verify that the MPE or calibration uncertainty meets the current official chapter's required relationship to the applied accuracy limit; assess combined uncertainty when weights are combined. Attach certificates as controlled appendices. (Rev.03 §7)",
+    environmentalConditions:
+      "Provisional operating window for planning and initial monitoring only: temperature 20–25 °C and relative humidity 40–60 % RH — PROPOSED SITE CONTROL LIMITS, not confirmed manufacturer limits and not a USP-mandated range. Record actual temperature/RH at start and end of each session; no abrupt temperature change; no direct airflow; rigid, level, low-vibration bench; no direct sunlight or nearby heat source. Do not record proposed ranges as actual observed conditions. (Rev.03 §6)",
+    safetyRequirements:
+      "Prerequisites (Rev.03 §8): approved protocol available at point of use; identity matches QC-I-074 / Sartorius ED224S / serial 23304057; balance clean, level, mechanically sound and within calibration/maintenance status; controlled manufacturer instructions available and followed exactly (equilibration, operating limits); room conditions and actual location recorded; reference weights with suitable current certificates, thermally equilibrated and handled appropriately; QC Owner has approved m and required tolerance before the repeatability/minimum-weight decision; operator, date/time, environment, settings and all readings recorded contemporaneously.",
+    deviationManagement:
+      "Historical record reportedly contains six readings only; it cannot retrospectively satisfy a requirement for not fewer than 10 replicate readings. Preserve the original record unchanged; perform a new repeatability test with at least 10 readings under the approved method. Record all deviations, investigations, impact assessments, corrective actions and retest evidence. No fabricated or reconstructed raw data are permitted. (Rev.03 §10)",
+    finalAssessment:
+      "Each test is reported PASS / FAIL / N/A with raw-data reference, deviation number and reviewer/date (Rev.03 §11). Approval checklist (Appendix B): current official USP chapters and notices verified; exact manufacturer documentation verified; DQ/URS approved; m and tolerance approved; environmental range approved; reference-weight certificates accepted; linearity and eccentricity methods and criteria approved; all tests completed and deviations resolved; technical review and QA release completed. Document status: DRAFT – NOT APPROVED — no execution or release is authorized until all approval gates are met.",
   },
   sections: [
     {
+      key: "dq",
+      title: "5. DQ / User Requirements Specification",
+      stage: "DQ",
+      tests: [
+        test({
+          key: "DQ", name: "DQ — Design Qualification / User Requirements (URS-01 … URS-08)", stage: "DQ",
+          procedure: "The QC Equipment Owner completes and approves intended use, weighing range, smallest net sample mass and required weighing tolerance before the relevant acceptance decisions can be made. Record the entry / evidence reference for each URS item.",
+          sourceAcceptance: "All applicable URS items must be completed and approved. The intended smallest net sample weight and weighing tolerance must be derived from actual approved applications, not invented by the protocol author.",
+          refs: [B3, "@USP1058"], clause: "Rev.03 §5", dataType: "checklist",
+          fields: [
+            ...URS.map(([k, l]) => fBool(`${k}_ok`, `${l} — completed and approved`)),
+            ...URS.map(([k, l, hint]) => fText(`${k}_ev`, `${l} — entry / evidence (${hint})`, false)),
+            fNum("m_urs", "Approved smallest net sample mass m (URS-03)", "g", false),
+            fText("m_rationale", "URS-03 method reference and scientific rationale for m", false),
+          ],
+          criteria: URS.map(([k, l]) => passFail(`${k}_ok`, `${l}: completed and approved (Rev.03 §5 DQ acceptance).`, B3, "§5")),
+          notes: "Rev.03 lists every URS item as OPEN (URS-06: provisional window, site approval open). The protocol does not supply m — it must come from an approved method (gap B2).",
+        }),
+      ],
+    },
+    {
       key: "qualification",
-      title: "8. Qualification Tests and Execution Data Sheets",
+      title: "9. Qualification Tests",
       stage: "OQ",
       tests: [
         test({
           key: "T01", name: "T01 — Installation Qualification (IQ)", stage: "IQ",
-          procedure: "Verify nameplate identity, model, serial, equipment ID, accessories, manuals, installation records, support surface, leveling, power supply, location and environmental suitability. Document any deviations and photographs where permitted.",
-          sourceAcceptance: "All identity fields match this protocol; installation and environment meet manufacturer instructions and approved site requirements. Any unmet requirement is documented and assessed.",
-          refs: ["@USP1251", "@USP1058"], clause: "USP <1251> PDF p.1", dataType: "checklist",
-          fields: [fBool("identity_ok", "Nameplate identity matches (ED224S / 23304057 / QC-I-074)"), fBool("docs_ok", "Accessories, manuals and installation records present"), fBool("surface_ok", "Solid, level, nonmagnetic, low-vibration support surface; leveled"), fBool("power_ok", "Power supply verified"), fBool("environment_ok", "Location and environment suitable (drafts, sunlight, temperature/humidity, EM fields assessed)"), fText("software_version", "Software / firmware (if applicable)"), fText("location", "Location / room ID", true)],
-          criteria: ["identity_ok", "docs_ok", "surface_ok", "power_ok", "environment_ok"].map(k => passFail(k, "Verified per CAL-QC-BAL-001 Rev.01 T01 acceptance (identity matches; installation and environment meet manufacturer instructions and site requirements).", "@USP1251", "PDF p.1")),
+          procedure: "Verify nameplate, model, serial number, equipment ID, accessories, manuals, installation records, bench, level, vibration, drafts, sunlight, power, location, temperature/RH, software/firmware where applicable, calibration status and due date. Attach evidence. Record actual room temperature and RH at the start and end of the session.",
+          sourceAcceptance: "Identity matches; installation meets the exact controlled manufacturer instructions and approved site requirements; all evidence is available. Missing site data is not a pass.",
+          refs: [B3, "@USP1251", "@USP1058", "@SARTORIUS"], clause: "Rev.03 §9 T01; §6", dataType: "checklist",
+          fields: [
+            fBool("identity_ok", "Nameplate and identity (QC-I-074 / ED224S / 23304057)"),
+            fBool("docs_ok", "Accessories / manual"),
+            fBool("location_ok", "Room / location / bench"),
+            fBool("level_ok", "Level / vibration / drafts"),
+            fBool("env_ok", "Temperature / RH recorded; no direct sunlight or heat source"),
+            fBool("power_ok", "Power / utilities"),
+            fBool("cal_status_ok", "Calibration status / due date verified"),
+            fText("location", "Room / location / bench ID", true),
+            fText("software_version", "Software / firmware (record if available/applicable)"),
+            fDate("cal_due", "Calibration due date", true),
+            fNum("temp_start", "Room temperature — start", "°C"),
+            fNum("temp_end", "Room temperature — end", "°C"),
+            fNum("rh_start", "Relative humidity — start", "%RH"),
+            fNum("rh_end", "Relative humidity — end", "%RH"),
+            fText("evidence", "Observation / evidence references", true),
+          ],
+          criteria: [
+            ...["identity_ok", "docs_ok", "location_ok", "level_ok", "env_ok", "power_ok", "cal_status_ok"].map(k => passFail(k, "Verified and documented; meets the controlled manufacturer instructions and approved site requirements (Rev.03 T01). Missing site data is not a pass.", B3, "§9 T01")),
+            ...["temp_start", "temp_end"].map(k => crit(`${k}_lim`, k, "Room temperature within the proposed site window 20–25 °C.", "between", { lower: 20, upper: 25, unit: "°C", sourceClass: "institutional", ref: B3, clause: "§6", conflict: ENV_NOTE })),
+            ...["rh_start", "rh_end"].map(k => crit(`${k}_lim`, k, "Relative humidity within the proposed site window 40–60 % RH.", "between", { lower: 40, upper: 60, unit: "%RH", sourceClass: "institutional", ref: B3, clause: "§6", conflict: ENV_NOTE })),
+          ],
+          notes: "The environmental limits are proposed site control limits (gap B5) — indicative only until approved.",
         }),
         test({
           key: "T02", name: "T02 — Operational Qualification (OQ)", stage: "OQ",
-          procedure: "Power on and equilibrate per manufacturer instructions. Verify mechanical mobility, stable indication, internal/manual adjustment function (as fitted), ancillary equipment, tare function and initial calibration at the normal use location.",
-          sourceAcceptance: "Functions operate as specified by the manufacturer and approved site requirements. Record observed results; no generic numeric USP limit is assigned to these functional checks.",
-          refs: ["@USP1251"], clause: "USP <1251> PDF pp.1–2", dataType: "checklist",
-          fields: [fBool("equilibrated", "Equilibrated per manufacturer instructions"), fBool("mobility_ok", "Mechanical mobility / stable indication"), fBool("adjust_ok", "Internal / manual adjustment function (as fitted)"), fBool("tare_ok", "Tare function"), fBool("initial_cal_ok", "Initial calibration at the normal use location"), fText("oq_notes", "Observed results")],
-          criteria: ["equilibrated", "mobility_ok", "adjust_ok", "tare_ok", "initial_cal_ok"].map(k => passFail(k, "Function operates as specified by the manufacturer (functional check — no numeric USP limit).", "@USP1251", "PDF pp.1–2")),
+          procedure: "Power on and equilibrate according to controlled manufacturer instructions. Verify stable indication, mechanical mobility, adjustment function as fitted, tare, display/readability, ancillary equipment and operation at the routine location. If connected to computerized systems, assess data capture, security, access, audit trail, storage, backup and recovery as applicable.",
+          sourceAcceptance: "Functions comply with controlled manufacturer specifications and approved URS. Do not invent universal numeric OQ limits.",
+          refs: [B3, "@USP1251", "@SARTORIUS"], clause: "Rev.03 §9 T02", dataType: "checklist",
+          fields: [
+            fBool("equilibrated", "Equilibrated per controlled manufacturer instructions"),
+            fBool("stable_ok", "Stable indication"),
+            fBool("mobility_ok", "Mechanical mobility"),
+            fBool("adjust_ok", "Adjustment function (as fitted)"),
+            fBool("tare_ok", "Tare"),
+            fBool("display_ok", "Display / readability"),
+            fBool("ancillary_ok", "Ancillary equipment"),
+            fBool("routine_loc_ok", "Operation at the routine location"),
+            fSelect("computerized", "Computerized system connection", ["Not connected — not applicable", "Connected — data capture, security, access, audit trail, storage, backup and recovery assessed"]),
+            fText("oq_notes", "Observed results / evidence references", true),
+          ],
+          criteria: ["equilibrated", "stable_ok", "mobility_ok", "adjust_ok", "tare_ok", "display_ok", "ancillary_ok", "routine_loc_ok"].map(k => passFail(k, "Function complies with the controlled manufacturer specification and approved URS (no universal numeric OQ limit).", B3, "§9 T02")),
         }),
         (() => {
-          const pts = [1, 2, 3];
+          const pts = [1, 2, 3, 4];
           return test({
             key: "T03", name: "T03 — Accuracy (USP <41>)", stage: "OQ",
-            procedure: "Use suitable calibrated weight(s) between 5% and 100% of capacity (11 g–220 g). Record certified/reference value and indicated value. Error (%) = [(Indicated − Reference) / Reference] × 100. Include the 200 g point if suitable; do not rely on a single point unless justified by the approved procedure.",
-            sourceAcceptance: "Absolute relative error ≤ 0.10% at each tested point. Weight MPE or calibration uncertainty ≤ one-third of the applied accuracy test limit. This is a USP <41> requirement.",
-            refs: ["@USP41"], clause: "USP <41> PDF p.1", dataType: "calculated",
-            fields: pts.flatMap(i => [fCert(`w${i}_cert`, `Point ${i} — weight ID / certificate`), fNum(`ref_${i}`, `Point ${i} — reference (certified) value`, "g"), fNum(`ind_${i}`, `Point ${i} — indicated value`, "g"), fNum(`u_${i}`, `Point ${i} — weight MPE or calibration uncertainty`, "g")]),
+            procedure: "Use suitable calibrated reference weight(s) over the required operating range and within the range stated in the current official USP <41>. The prior 5 %–100 % range is retained only pending confirmation against the current controlled chapter (5 % of 220 g = 11 g). Select and justify test points across the intended use range. Record certified reference value, indicated value, weight ID and certificate, and complete the reference-weight register (§7). Signed relative error (%) = [(indicated − certified) / certified] × 100.",
+            sourceAcceptance: "Acceptance decision uses the absolute error and the currently official chapter's criterion. Confirm current chapter wording and decision rule before approval; do not rely solely on the 2024 extract. Verify that the applicable MPE or calibration uncertainty meets the current official chapter's required relationship to the applied accuracy limit.",
+            refs: ["@USP41", B3], clause: "Rev.03 §9 T03; §7", dataType: "calculated",
+            fields: [
+              ...pts.flatMap(i => [
+                fCert(`w${i}_cert`, `Point ${i} — weight ID / certificate no.`),
+                fText(`w${i}_class`, `Point ${i} — weight class`, true),
+                fNum(`w${i}_u`, `Point ${i} — U / MPE`, "mg"),
+                fNum(`w${i}_k`, `Point ${i} — coverage factor k (where stated)`, "", false),
+                fDate(`w${i}_due`, `Point ${i} — certificate due date`, true),
+                fText(`w${i}_trace`, `Point ${i} — traceability provider`, true),
+                fNum(`ref_${i}`, `Point ${i} — certified value`, "g"),
+                fNum(`ind_${i}`, `Point ${i} — indication`, "g"),
+              ]),
+              fBool("cert_checks_ok", "Certificates authentic, current, traceable; weights handled/stored appropriately and thermally equilibrated (§7)"),
+              fBool("u_relation_ok", "MPE / calibration uncertainty meets the current official <41> relationship to the applied accuracy limit (§7)"),
+            ],
             calculations: pts.flatMap(i => [
-              calc({ key: `err_${i}`, label: `Error point ${i}`, kind: "custom", formula: `(ind_${i} - ref_${i}) / ref_${i} * 100`, unit: "%", decimals: 4 }),
-              calc({ key: `umargin_${i}`, label: `One-third of limit − u (point ${i})`, kind: "custom", formula: `ref_${i} * 0.10 / 100 / 3 - u_${i}`, unit: "g", decimals: 6 }),
+              calc({ key: `err_${i}`, label: `Signed relative error point ${i}`, kind: "custom", formula: `(ind_${i} - ref_${i}) / ref_${i} * 100`, unit: "%", decimals: 4, formulaRevision: "BAL-Rev03 App.A" }),
+              calc({ key: `abserr_${i}`, label: `Absolute error point ${i}`, kind: "custom", formula: `abs(ind_${i} - ref_${i}) / ref_${i} * 100`, unit: "%", decimals: 4, formulaRevision: "BAL-Rev03 App.A" }),
             ]),
-            criteria: pts.flatMap(i => [
-              crit(`err_${i}_lim`, `err_${i}`, "Absolute relative error ≤ 0.10 % (USP <41>).", "abs<=", { tolerance: 0.1, unit: "%", ref: "@USP41", clause: "PDF p.1" }),
-              crit(`u_${i}_lim`, `umargin_${i}`, "Weight MPE / uncertainty ≤ one-third of the applied test limit (USP <41>).", ">=", { lower: 0, unit: "g", ref: "@USP41", clause: "PDF p.1" }),
-              crit(`range_${i}`, `ref_${i}`, "Test weight between 5 % and 100 % of the 220 g capacity (11–220 g).", "between", { lower: 11, upper: 220, unit: "g", ref: "@USP41", clause: "PDF p.1" }),
-            ]),
+            criteria: [
+              passFail("cert_checks_ok", "Reference-weight certificate and traceability checks complete (Rev.03 §7).", B3, "§7"),
+              passFail("u_relation_ok", "Weight MPE / uncertainty relationship to the applied accuracy limit verified against the current official <41> (Rev.03 §7).", "@USP41", "Rev.03 §7"),
+              ...pts.map(i => notSpecified(`acc_${i}`, `Point ${i} absolute error: acceptance per the currently official USP <41> criterion (Rev.03 states no numeric limit; Rev.01's ≤ 0.10 % is not carried over without verification — gap B10)`, "@USP41", "Rev.03 §9 T03")),
+              ...pts.map(i => crit(`range_${i}`, `ref_${i}`, "Test weight within 5 %–100 % of the 220 g capacity (11–220 g) — prior range retained only pending confirmation against the current controlled chapter.", "between", { lower: 11, upper: 220, unit: "g", ref: "@USP41", clause: "Rev.03 §9 T03", conflict: "Range retained pending confirmation (Rev.03 T03); capacity 220 g itself is to be verified from nameplate/manual (URS-05)." })),
+            ],
+            notes: "Rev.03 data sheet has 4 rows; if fewer points are justified, edit the draft before technical review. Each point's weight-register entry is recorded with the point.",
           });
         })(),
         test({
           key: "T04", name: "T04 — Repeatability (USP <41>)", stage: "OQ",
-          procedure: "Perform NLT 10 weighings of one test weight within the balance operating range under the same conditions. Record all individual readings. Calculate sample standard deviation s. Scale interval d = 0.0001 g; s_eff = max(s, 0.41d) = max(s, 0.000041 g).",
-          sourceAcceptance: "For the intended smallest net weight m: (2 × s_eff / m) × 100 ≤ 0.10%. The repeatability test weight need not be calibrated under USP <41>, but its mass must remain stable. This is a USP <41> requirement.",
-          refs: ["@USP41"], clause: "USP <41> PDF p.1", dataType: "series", unit: "g", readingsRequired: 10,
-          fields: [fNum("m", "Intended smallest net sample mass m (QC owner input)", "g")],
-          calculations: [calc({ key: "s", label: "Sample SD s (n−1)", kind: "sd", unit: "g" }), calc({ key: "s_eff", label: "s_eff = max(s, 0.41d), d = 0.0001 g", kind: "custom", formula: "max(s, 0.000041)", unit: "g", formulaRevision: "BAL-Rev01 d=0.0001 g" }), calc({ key: "rep", label: "2·s_eff/m × 100", kind: "custom", formula: "2 * s_eff / m * 100", unit: "%", decimals: 4 })],
-          criteria: [crit("rep_lim", "rep", "(2 × s_eff / m) × 100 ≤ 0.10 % with NLT 10 weighings (USP <41>).", "<=", { upper: 0.1, unit: "%", ref: "@USP41", clause: "PDF p.1", conflict: "Historical QC-I-074 record has 6 readings only — cannot substantiate this test (gap B1)." })],
-          notes: "Ten readings are mandatory (USP <41> NLT 10). The intended smallest net mass m must be defined by the QC owner — no value is assumed.",
+          procedure: "Perform not fewer than 10 replicate weighings of one stable test weight under consistent conditions. Record every reading; investigate anomalous values and do not delete them without documented justification. Confirm the current official chapter's test conditions and calculation before execution. Worksheet (supplied <41> extract): sample SD s from n ≥ 10 readings; d = verified scale interval; s_eff = max(s, 0.41d); repeatability (%) = (2 × s_eff / m) × 100, m = QC Owner-approved smallest net sample mass.",
+          sourceAcceptance: "The prior criterion ≤ 0.10 % must be checked against the current official <41> during approval.",
+          refs: ["@USP41", B3], clause: "Rev.03 §9 T04; App.A", dataType: "series", unit: "g", readingsRequired: 10,
+          fields: [fNum("d", "Verified scale interval d", "g"), fNum("m", "QC Owner-approved smallest net sample mass m", "g")],
+          calculations: [
+            calc({ key: "mean", label: "Mean", kind: "mean", unit: "g", decimals: 5 }),
+            calc({ key: "s", label: "Sample SD s (n−1)", kind: "sd", unit: "g" }),
+            calc({ key: "res_floor", label: "0.41d", kind: "custom", formula: "0.41 * d", unit: "g", formulaRevision: "BAL-Rev03 App.A" }),
+            calc({ key: "s_eff", label: "s_eff = max(s, 0.41d)", kind: "custom", formula: "max(s, res_floor)", unit: "g", formulaRevision: "BAL-Rev03 App.A" }),
+            calc({ key: "rep", label: "Repeatability = 100 × 2·s_eff / m", kind: "custom", formula: "2 * s_eff / m * 100", unit: "%", decimals: 4, formulaRevision: "BAL-Rev03 App.A" }),
+          ],
+          criteria: [crit("rep_lim", "rep", "Repeatability (2 × s_eff / m) × 100 ≤ 0.10 % — prior criterion, to be checked against the current official <41> during approval.", "<=", { upper: 0.1, unit: "%", ref: "@USP41", clause: "Rev.03 §9 T04", conflict: "Rev.03: 'The prior criterion ≤0.10% must be checked against the current official <41> during approval.' The historical 6-reading record cannot satisfy n ≥ 10 (gap B1)." })],
+          notes: "Exactly 10 reading fields are configured (the minimum). d is entered from the verified nameplate/manual (no fixed 0.0001 g in the formula — Rev.03 'use verified d').",
         }),
         test({
-          key: "T05", name: "T05 — Minimum weight (USP <41>/<1251>)", stage: "OQ",
-          procedure: "Calculate Mmin = 2000 × s_eff for materials that must be accurately weighed. Record the QC owner's intended smallest net sample mass and compare it with Mmin. The minimum weight applies to net sample mass, not tare or gross mass. Enter s from T04.",
-          sourceAcceptance: "The intended smallest net sample mass must be ≥ Mmin. If s is below 0.41d, use 0.41d. For this balance the rounding floor is 0.000041 g and the corresponding floor-based Mmin is 0.082 g; this is a calculated lower-bound example only and is not the actual approved minimum weight unless supported by the measured repeatability result.",
-          refs: ["@USP41", "@USP1251"], clause: "USP <41> PDF p.1; <1251> PDF p.3", dataType: "calculated", dependsOn: "T04",
-          fields: [fNum("s", "Measured repeatability s (from T04)", "g"), fNum("m", "Intended smallest net sample mass", "g")],
-          calculations: [calc({ key: "s_eff", label: "s_eff = max(s, 0.000041)", kind: "custom", formula: "max(s, 0.000041)", unit: "g" }), calc({ key: "mmin", label: "Mmin = 2000 × s_eff", kind: "custom", formula: "2000 * s_eff", unit: "g" }), calc({ key: "mw_margin", label: "m − Mmin", kind: "custom", formula: "m - mmin", unit: "g", decimals: 4 })],
-          criteria: [crit("mw_lim", "mw_margin", "Intended smallest net sample mass ≥ Mmin (USP <41>).", ">=", { lower: 0, unit: "g", ref: "@USP41", clause: "PDF p.1" })],
+          key: "T05", name: "T05 — Minimum weight / smallest net weight", stage: "OQ",
+          procedure: "Calculate the minimum weight from actual repeatability data (T04); it is not interchangeable with the QC Owner's intended smallest net sample mass. Supplied extract: Mmin = 2000 × s_eff. For d = 0.0001 g the floor is 0.41d = 0.000041 g and the floor-only result is 0.082 g — NOT an approved minimum weight and not the actual result unless measured s ≤ floor and the current chapter's calculation is unchanged.",
+          sourceAcceptance: "The measured/calculated minimum weight must be no greater than the intended smallest net sample mass m for each application, with the current official chapter and approved method controlling. If it is greater, restrict the balance's use or select a more suitable balance; do not waive the requirement.",
+          refs: ["@USP41", "@USP1251", B3], clause: "Rev.03 §9 T05", dataType: "calculated", dependsOn: "T04",
+          fields: [fNum("s", "Measured s (from T04)", "g"), fNum("d", "Verified scale interval d", "g"), fNum("m", "Intended smallest net sample mass m", "g"), fSelect("disposition", "Disposition", ["Suitable for the intended m", "Use restricted (m below Mmin for some applications)", "Select a more suitable balance"], false)],
+          calculations: [
+            calc({ key: "res_floor", label: "0.41d", kind: "custom", formula: "0.41 * d", unit: "g", formulaRevision: "BAL-Rev03 App.A" }),
+            calc({ key: "s_eff", label: "s_eff = max(s, 0.41d)", kind: "custom", formula: "max(s, res_floor)", unit: "g", formulaRevision: "BAL-Rev03 App.A" }),
+            calc({ key: "mmin", label: "Calculated Mmin = 2000 × s_eff", kind: "custom", formula: "2000 * s_eff", unit: "g", formulaRevision: "BAL-Rev03 §9 T05" }),
+            calc({ key: "mw_margin", label: "m − Mmin", kind: "custom", formula: "m - mmin", unit: "g", decimals: 5 }),
+          ],
+          criteria: [crit("mw_lim", "mw_margin", "Calculated minimum weight ≤ intended smallest net sample mass m (m − Mmin ≥ 0); current official chapter and approved method controlling.", ">=", { lower: 0, unit: "g", ref: "@USP41", clause: "Rev.03 §9 T05" })],
         }),
         test({
-          key: "T06", name: "T06 — Sensitivity (USP <1251> risk-based PQ)", stage: "PQ",
-          procedure: "Use a certified test load at or sufficiently close to the balance capacity. Sensitivity ratio = change in displayed value / applied load; express deviation from 1 as a percentage. Record the weight certificate and uncertainty/MPE.",
-          sourceAcceptance: "Where USP <41> applies and this test is selected to assess systematic deviation, NMT 0.05% deviation from 1. For other uses, use the approved weighing tolerance divided by 2. This is a suggested PQ test under <1251>, not a standalone mandatory <41> test.",
-          refs: ["@USP1251"], clause: "USP <1251> PDF p.2", dataType: "calculated",
-          fields: [fNum("ref_load", "Reference load", "g"), fNum("ind_change", "Indicated change", "g"), fCert("load_cert", "Test load certificate / uncertainty")],
-          calculations: [calc({ key: "ratio", label: "Sensitivity ratio", kind: "custom", formula: "ind_change / ref_load" }), calc({ key: "sens_dev", label: "|ratio − 1| × 100", kind: "custom", formula: "abs(ratio - 1) * 100", unit: "%", decimals: 4 })],
-          criteria: [crit("sens_lim", "sens_dev", "NMT 0.05 % deviation from 1 where USP <41> applies (otherwise approved tolerance / 2).", "<=", { upper: 0.05, unit: "%", ref: "@USP1251", clause: "PDF p.2" })],
+          key: "T06", name: "T06 — Sensitivity (risk-based, optional)", stage: "PQ", required: false,
+          procedure: "Perform only if justified by intended use and risk assessment. Apply a suitable certified load under the approved method; record the change in displayed value. Ratio = observed change / applied load; deviation from unity (%) = (ratio − 1) × 100.",
+          sourceAcceptance: "The acceptance criterion and test load must be defined in the approved PQ method and supported by current USP guidance / manufacturer limits. Do not treat the earlier draft's generic tolerance as automatically mandatory.",
+          refs: ["@USP1251", B3], clause: "Rev.03 §9 T06", dataType: "calculated",
+          fields: [fText("justification", "Risk-assessment justification for performing the test", true), fCert("load_cert", "Certified load ID / certificate"), fNum("ref_load", "Applied certified load", "g"), fNum("ind_change", "Observed change in displayed value", "g")],
+          calculations: [calc({ key: "ratio", label: "Ratio = observed change / applied load", kind: "custom", formula: "ind_change / ref_load" }), calc({ key: "sens_dev", label: "Deviation from unity = (ratio − 1) × 100", kind: "custom", formula: "(ratio - 1) * 100", unit: "%", decimals: 4, formulaRevision: "BAL-Rev03 §9 T06" })],
+          criteria: [notSpecified("sens_lim", "Sensitivity acceptance criterion and test load — defined in the approved PQ method (Rev.01's 0.05 % not automatically mandatory — gap B9)", "@USP1251", "Rev.03 §9 T06")],
+          notes: "Optional: when not performed the test is reported NOT APPLICABLE; record the risk-based justification either way.",
         }),
         test({
-          key: "T07", name: "T07 — Linearity (USP <1251> risk-based PQ)", stage: "PQ",
-          procedure: "Assess 3–6 points across the balance range (6 configured, per the data sheet). Record reference and indicated values and calculate deviation from the reference values. Certified weights are required for the direct method.",
-          sourceAcceptance: "Where USP <41> applies and this test is selected, NMT 0.05% deviation. For other uses, approved weighing tolerance divided by 2. This is a suggested PQ test under <1251>.",
-          refs: ["@USP1251"], clause: "USP <1251> PDF p.2", dataType: "multi-level", unit: "g", readingsRequired: 1,
-          levels: [1, 2, 3, 4, 5, 6].map(i => level(`P${i}`, `Point ${i}`, null, "g", "Certified reference value from the weight certificate")),
-          calculations: [calc({ key: "lin_dev", label: "Deviation from reference", kind: "pct-error", scope: "per-level", unit: "%", decimals: 4 })],
-          criteria: [crit("lin_lim", "lin_dev", "NMT 0.05 % deviation where USP <41> applies (otherwise approved tolerance / 2).", "abs<=", { tolerance: 0.05, unit: "%", ref: "@USP1251", clause: "PDF p.2" })],
-          notes: "Source allows 3–6 points; the data sheet has 6 rows. If fewer points are justified, edit the levels in the draft before technical review.",
+          key: "T07", name: "T07 — Linearity (pointwise deviation)", stage: "PQ",
+          procedure: "Use a minimum of 3 and preferably 5–6 suitably distributed certified loads spanning the approved working range, as justified by the approved method. At each point record certified mass m_i and indication I_i. Calculation method selected before execution (proposed for site approval): e_i = I_i − m_i; report |e_i| and the maximum absolute deviation; relative error 100 × e_i / m_i only where a percentage is required. This pointwise method is not a regression model.",
+          sourceAcceptance: "Acceptance limit: define from the current USP <1251> and the approved site method before execution. Do not copy an old criterion without verification.",
+          refs: ["@USP1251", B3], clause: "Rev.03 §9 T07; App.A", dataType: "multi-level", unit: "g", readingsRequired: 1,
+          levels: [1, 2, 3, 4, 5, 6].map(i => level(`P${i}`, `Point ${i}`, null, "g", "Certified mass m_i from the weight certificate")),
+          fields: [fText("method_ref", "Approved linearity method / worksheet reference (selected before execution)", true)],
+          calculations: [
+            calc({ key: "e", label: "e_i = I_i − m_i", kind: "error", scope: "per-level", unit: "g", decimals: 5, formulaRevision: "BAL-Rev03 App.A" }),
+            calc({ key: "abs_e", label: "|e_i|", kind: "abs-error", scope: "per-level", unit: "g", decimals: 5, formulaRevision: "BAL-Rev03 App.A" }),
+            calc({ key: "rel_e", label: "Relative error 100 × e_i / m_i", kind: "pct-error", scope: "per-level", unit: "%", decimals: 4, formulaRevision: "BAL-Rev03 App.A" }),
+            calc({ key: "max_abs_e", label: "Maximum |e_i| across the range", kind: "max-level-abs-error", unit: "g", decimals: 5, formulaRevision: "BAL-Rev03 App.A" }),
+          ],
+          criteria: [notSpecified("lin_lim", "Linearity acceptance limit — define from the current USP <1251> and the approved site method before execution (Rev.01's 0.05 % not carried over — gap B7)", "@USP1251", "Rev.03 §9 T07")],
+          notes: "6 points configured (Rev.03 data sheet rows); the source minimum is 3 — remove points in the draft only with the approved-method justification.",
         }),
         test({
-          key: "T08", name: "T08 — Eccentricity (USP <1251> risk-based PQ)", stage: "PQ",
-          procedure: "Place the test load at the center and four quadrants. Test load usually should be 30% of capacity or higher (66 g for 220 g), subject to the manufacturer's upper limit. Record each position and the center reading.",
-          sourceAcceptance: "Where USP <41> applies and this test is selected, NMT 0.05% deviation between off-center and center readings. For other uses, approved weighing tolerance divided by 2. Confirm load limit in the manufacturer manual.",
-          refs: ["@USP1251"], clause: "USP <1251> PDF p.2", dataType: "calculated",
-          fields: [fNum("load", "Test load", "g"), fNum("center", "Center reading", "g"), ...[1, 2, 3, 4].map(i => fNum(`q${i}`, `Quadrant ${i} reading`, "g"))],
-          calculations: [1, 2, 3, 4].map(i => calc({ key: `ecc_${i}`, label: `Quadrant ${i} deviation from center`, kind: "custom", formula: `abs(q${i} - center) / center * 100`, unit: "%", decimals: 4 })),
-          criteria: [1, 2, 3, 4].map(i => crit(`ecc_${i}_lim`, `ecc_${i}`, "NMT 0.05 % deviation between off-center and center readings (where USP <41> applies).", "<=", { upper: 0.05, unit: "%", ref: "@USP1251", clause: "PDF p.2" })),
+          key: "T08", name: "T08 — Eccentricity", stage: "PQ",
+          procedure: "Select a test load appropriate to the balance and approved method; confirm the load is within the manufacturer's permitted range. Measure at the center and four defined off-center positions (or an equivalent approved pattern), same load and handling. Δ_j = I_j − I_center; report max|Δ|; if percentage reporting is required, 100 × Δ_j / m_ref with the certified test-load value (denominator approved in the method before testing).",
+          sourceAcceptance: "Do not assume a generic 30 % load or 0.05 % criterion without confirmation against the current USP <1251>, manufacturer upper-load limit and risk-based application.",
+          refs: ["@USP1251", "@SARTORIUS", B3], clause: "Rev.03 §9 T08; App.A", dataType: "calculated",
+          fields: [
+            fCert("load_cert", "Test load ID / certificate"),
+            fNum("m_ref", "Certified test-load value m_ref", "g"),
+            fBool("load_in_range", "Load within the manufacturer's permitted range (controlled manual)"),
+            fText("pattern", "Position pattern / approved method reference", true),
+            fNum("center", "Center indication", "g"),
+            ...ECC_POS.map(([k, l]) => fNum(k, `${l} indication`, "g")),
+          ],
+          calculations: [
+            ...ECC_POS.map(([k, l]) => calc({ key: `d_${k}`, label: `Δ ${l} = I − I_center`, kind: "custom", formula: `${k} - center`, unit: "g", decimals: 5, formulaRevision: "BAL-Rev03 App.A" })),
+            calc({ key: "max_abs_d", label: "max|Δ|", kind: "custom", formula: `max(${ECC_POS.map(([k]) => `abs(${k} - center)`).join(", ")})`, unit: "g", decimals: 5, formulaRevision: "BAL-Rev03 App.A" }),
+            ...ECC_POS.map(([k, l]) => calc({ key: `p_${k}`, label: `Deviation % ${l} = 100 × Δ / m_ref (if approved)`, kind: "custom", formula: `(${k} - center) / m_ref * 100`, unit: "%", decimals: 4, formulaRevision: "BAL-Rev03 App.A" })),
+          ],
+          criteria: [passFail("load_in_range", "Test load within the manufacturer's permitted range (Rev.03 T08).", "@SARTORIUS", "Rev.03 §9 T08"), notSpecified("ecc_lim", "Eccentricity positions, denominator and acceptance limit — approve before testing (generic 30 % load / 0.05 % not assumed — gap B8)", "@USP1251", "Rev.03 §9 T08")],
         }),
       ],
     },
   ],
   gaps: [
-    gap("B1", "Historical balance record cannot substantiate USP <41> repeatability", "The supplied historical QC-I-074 record contains six repeatability readings and a ±0.0004 g deviation limit. USP <41> requires NLT 10 weighings; the ±0.0004 g limit is not substituted for the 0.10 % accuracy criterion or the <1251> criteria. Re-execution under this protocol is required.", [
-      { label: "USP <41>", displayValue: "NLT 10 weighings; 2s_eff/m ≤ 0.10 %", ref: "@USP41", clause: "PDF p.1" },
-      { label: "Historical record QC-I-074", displayValue: "6 readings; ±0.0004 g", ref: "@PKG", clause: "Rev.01 §11", sourceClass: "institutional" },
+    gap("B1", "Historical balance record cannot substantiate USP <41> repeatability", "The historical record reportedly contains six readings only. It cannot retrospectively satisfy a requirement for not fewer than 10 replicate readings. Preserve the original record unchanged; perform a new repeatability test with at least 10 readings (Rev.03 §10).", [
+      { label: "CAL-QC-BAL-001 Rev.03 T04", displayValue: "n ≥ 10 replicate weighings", ref: B3, clause: "§9 T04", sourceClass: "institutional" },
+      { label: "Historical record QC-I-074", displayValue: "6 readings only", ref: B3, clause: "§10", sourceClass: "institutional" },
     ], "T04", "g"),
-    gap("B2", "Intended smallest net sample weight not defined", "The QC owner must define the intended smallest net sample weight before the <41> repeatability and minimum-weight decisions (Rev.01 §6, §15). No value was invented.", [
-      { label: "CAL-QC-BAL-001 Rev.01", displayValue: "Required QC-owner input", ref: "@PKG", clause: "§6, §15", sourceClass: "institutional" },
+    gap("B2", "Intended smallest net sample mass m not set", "The QC Owner must set m from approved methods with a method-linked rationale before the repeatability and minimum-weight decisions (URS-03; Rev.03 §11 open item). No value was invented.", [
+      { label: "CAL-QC-BAL-001 Rev.03", displayValue: "URS-03 OPEN", ref: B3, clause: "§5, §11", sourceClass: "institutional" },
     ], "T05", "g"),
+    gap("B3", "Current official USP text not confirmed", "The supplied USP extracts were printed 05-Jan-2024. Public DOI previews identify 2025 versions of <41> (USPNF_M98780_05_01) and <1251> (USPNF_M99963_04_01); USP-NF 2026 Issue 5 is official from 01-Oct-2026 (Issue 6 from 01-Dec-2026, not yet effective on 21-Nov-2026). QA / Document Control must verify chapter revisions, revision bulletins and IRAs in the subscribed USP-NF on the approval date (Rev.03 §3).", [
+      { label: "Supplied extracts", displayValue: "Printed 05-Jan-2024", ref: "@USP41", clause: "Rev.03 §3" },
+      { label: "USP <41> DOI preview", displayValue: "USPNF_M98780_05_01 (2025)", ref: "@USP41", clause: "Rev.03 §3" },
+      { label: "USP <1251> DOI preview", displayValue: "USPNF_M99963_04_01 (2025)", ref: "@USP1251", clause: "Rev.03 §3" },
+    ]),
+    gap("B4", "Manufacturer specifications unverified (exact ED224S variant)", "Rev.03 §4: capacity 220 g and d = 0.0001 g must be verified from nameplate and the controlled manual; previously transcribed repeatability / linearity / response time / pan size (Rev.01: ≤0.0001 g, ≤0.0002 g, ≤2.5 s, 90 mm, +10 to +30 °C) are unverified and must not be used as acceptance criteria. Equipment records populated from Rev.01 must be reviewed on the equipment data page.", [
+      { label: "CAL-QC-BAL-001 Rev.03 §4", displayValue: "Capacity 220 g, d 0.0001 g — verify", ref: B3, clause: "§4", sourceClass: "institutional" },
+      { label: "Rev.01 manufacturer table", displayValue: "Unverified — not used as criteria", ref: "@SARTORIUS", clause: "Rev.03 §4", sourceClass: "manufacturer" },
+    ]),
+    gap("B5", "Environmental operating window is a site proposal", "20–25 °C / 40–60 % RH are PROPOSED SITE CONTROL LIMITS for planning and initial monitoring, not confirmed manufacturer limits and not a USP range. QC, Engineering and QA must approve or replace them; the manufacturer requirement governs if narrower/different (Rev.03 §6).", [
+      { label: "CAL-QC-BAL-001 Rev.03 §6", displayValue: "20–25 °C; 40–60 % RH (proposed)", ref: B3, clause: "§6", sourceClass: "institutional" },
+      { label: "Rev.01 §4 (unverified manufacturer)", displayValue: "+10 to +30 °C", ref: "@SARTORIUS", clause: "Rev.01 §4", sourceClass: "manufacturer" },
+    ], "T01", "°C"),
+    gap("B6", "Reference-weight register empty", "No certificate identifiers, certified values or uncertainties were supplied; the register must be completed from original, current certificates before testing (Rev.03 §7).", [
+      { label: "CAL-QC-BAL-001 Rev.03 §7", displayValue: "Register to be completed", ref: B3, clause: "§7", sourceClass: "institutional" },
+    ], "T03", "g"),
+    gap("B7", "Linearity method and limit not approved", "Rev.03 proposes a pointwise method (e_i = I_i − m_i); the method and the acceptance limit must be approved from the current USP <1251> and the site method before execution. Rev.01's 0.05 % is not carried over.", [
+      { label: "CAL-QC-BAL-001 Rev.03 T07", displayValue: "Limit to be defined", ref: B3, clause: "§9 T07", sourceClass: "institutional" },
+      { label: "Rev.01 (superseded)", displayValue: "NMT 0.05 %", ref: "@USP1251", clause: "Rev.01 T07" },
+    ], "T07", "g"),
+    gap("B8", "Eccentricity positions, denominator and limit not approved", "Positions, the % denominator (m_ref) and the limit must be approved before testing; a generic 30 % load / 0.05 % criterion is not assumed (Rev.03 T08).", [
+      { label: "CAL-QC-BAL-001 Rev.03 T08", displayValue: "To be approved", ref: B3, clause: "§9 T08", sourceClass: "institutional" },
+      { label: "Rev.01 (superseded)", displayValue: "≥30 % load; NMT 0.05 %", ref: "@USP1251", clause: "Rev.01 T08" },
+    ], "T08", "g"),
+    gap("B9", "Sensitivity criterion not defined", "Sensitivity is performed only if justified; its criterion and load are defined in the approved PQ method. Rev.01's 0.05 % is not automatically mandatory (Rev.03 T06).", [
+      { label: "CAL-QC-BAL-001 Rev.03 T06", displayValue: "Method-defined", ref: B3, clause: "§9 T06", sourceClass: "institutional" },
+      { label: "Rev.01 (superseded)", displayValue: "NMT 0.05 %", ref: "@USP1251", clause: "Rev.01 T06" },
+    ], "T06", "%"),
+    gap("B10", "Accuracy criterion and range to be confirmed against current <41>", "Rev.03 T03 states no numeric accuracy limit: the decision uses the absolute error and the currently official chapter's criterion. The 5–100 % range (11–220 g) is retained only pending confirmation. Rev.01's ≤ 0.10 % and one-third uncertainty rule are not carried over without verification.", [
+      { label: "CAL-QC-BAL-001 Rev.03 T03", displayValue: "Current official <41> criterion", ref: B3, clause: "§9 T03", sourceClass: "institutional" },
+      { label: "Rev.01 (superseded)", displayValue: "|error| ≤ 0.10 %; U ≤ 1/3 limit", ref: "@USP41", clause: "Rev.01 T03" },
+    ], "T03", "%"),
   ],
 });
 
@@ -1126,7 +1337,14 @@ const UV = build({
 /** The eight imported protocols, in register order. */
 export const PACKAGE_PROTOCOLS: PackageProtocol[] = [HPLC, POL, BAL, MOA, DIS, DISINT, REF, UV];
 
-/** Equipment created by the import (not part of the built-in device list). Values from CAL-QC-BAL-001 Rev.01 §4. */
+/** The balance protocol as supplied in Rev.03 (replaces the Rev.01 content in an existing system). */
+export const BAL_REV03 = BAL;
+export const BAL_REV03_REASON =
+  "Content replaced by CAL-QC-BAL-001 Rev.03 (CAL-QC-BAL-001_Rev03_DRAFT_Expanded.pdf, 21-Nov-2026; source status DRAFT – TECHNICAL REVIEW / QA APPROVAL REQUIRED), superseding the Rev.01 content. Rev.03 removes previously assumed numeric limits (accuracy, sensitivity, linearity, eccentricity) pending the current official USP text and approved site methods. All criteria PENDING TECHNICAL VERIFICATION; loading the protocol does not imply that the instrument passed.";
+
+const BAL_UNVERIFIED = "UNVERIFIED — transcribed in superseded CAL-QC-BAL-001 Rev.01 §4; Rev.03 §4: do not use as an acceptance criterion until the exact ED224S variant documentation (controlled manual) is attached";
+
+/** Equipment created by the import (not part of the built-in device list). Identity per CAL-QC-BAL-001 Rev.03 §4. */
 export const PACKAGE_NEW_EQUIPMENT = [
   {
     instrumentKey: "balance",
@@ -1139,17 +1357,35 @@ export const PACKAGE_NEW_EQUIPMENT = [
     serialNumber: "23304057",
     sopNumber: "QC-105D",
     formNumber: "",
-    source: "CAL-QC-BAL-001 Rev.01 §4 (Instrument Identification and Manufacturer Specifications) and the supplied QC-I-074 validation record image",
+    source: "CAL-QC-BAL-001 Rev.03 §4 (Instrument Identification) and the supplied QC-I-074 validation record image",
+    reference: "CAL-QC-BAL-001 Rev.03 §4",
     specifications: {
-      capacity: { value: 220, unit: "g", source: "CAL-QC-BAL-001 Rev.01 §4" },
-      readability: { value: 0.0001, unit: "g", source: "CAL-QC-BAL-001 Rev.01 §4" },
-      mfrRepeatability: { value: 0.0001, unit: "g", source: "CAL-QC-BAL-001 Rev.01 §4 (manufacturer)" },
-      mfrLinearity: { value: 0.0002, unit: "g", source: "CAL-QC-BAL-001 Rev.01 §4 (manufacturer)" },
-      responseTime: { value: 2.5, unit: "s", source: "CAL-QC-BAL-001 Rev.01 §4 (manufacturer, typical)" },
-      panDiameter: { value: 90, unit: "mm", source: "CAL-QC-BAL-001 Rev.01 §4" },
-      envTempMin: { value: 10, unit: "°C", source: "CAL-QC-BAL-001 Rev.01 §4 (manufacturer operating range)" },
-      envTempMax: { value: 30, unit: "°C", source: "CAL-QC-BAL-001 Rev.01 §4 (manufacturer operating range)" },
-      calWeight: { value: "200 g, class E2 (verify current manual/configuration before use)", unit: "", source: "CAL-QC-BAL-001 Rev.01 §4" },
+      capacity: { value: 220, unit: "g", source: "CAL-QC-BAL-001 Rev.03 §4 — verify from nameplate and controlled manual" },
+      readability: { value: 0.0001, unit: "g", source: "CAL-QC-BAL-001 Rev.03 §4 — verify from nameplate/manual" },
+      mfrRepeatability: { value: 0.0001, unit: "g", source: BAL_UNVERIFIED },
+      mfrLinearity: { value: 0.0002, unit: "g", source: BAL_UNVERIFIED },
+      responseTime: { value: 2.5, unit: "s", source: BAL_UNVERIFIED },
+      panDiameter: { value: 90, unit: "mm", source: BAL_UNVERIFIED },
+      envTempMin: { value: 10, unit: "°C", source: `${BAL_UNVERIFIED}. Rev.03 §6 proposes a site window of 20–25 °C / 40–60 %RH (pending approval)` },
+      envTempMax: { value: 30, unit: "°C", source: `${BAL_UNVERIFIED}. Rev.03 §6 proposes a site window of 20–25 °C / 40–60 %RH (pending approval)` },
+      calWeight: { value: "200 g, class E2 (verify current manual/configuration before use)", unit: "", source: BAL_UNVERIFIED },
     },
   },
 ] as const;
+
+/**
+ * Specification sources written by the superseded Rev.01 import. The Rev.03
+ * replacement re-labels a stored value ONLY when it still carries exactly this
+ * value + source (i.e. nobody has edited it since); user-entered data is never touched.
+ */
+export const BAL_REV01_SPEC_SOURCES: Record<string, { value: number | string; source: string }> = {
+  capacity: { value: 220, source: "CAL-QC-BAL-001 Rev.01 §4" },
+  readability: { value: 0.0001, source: "CAL-QC-BAL-001 Rev.01 §4" },
+  mfrRepeatability: { value: 0.0001, source: "CAL-QC-BAL-001 Rev.01 §4 (manufacturer)" },
+  mfrLinearity: { value: 0.0002, source: "CAL-QC-BAL-001 Rev.01 §4 (manufacturer)" },
+  responseTime: { value: 2.5, source: "CAL-QC-BAL-001 Rev.01 §4 (manufacturer, typical)" },
+  panDiameter: { value: 90, source: "CAL-QC-BAL-001 Rev.01 §4" },
+  envTempMin: { value: 10, source: "CAL-QC-BAL-001 Rev.01 §4 (manufacturer operating range)" },
+  envTempMax: { value: 30, source: "CAL-QC-BAL-001 Rev.01 §4 (manufacturer operating range)" },
+  calWeight: { value: "200 g, class E2 (verify current manual/configuration before use)", source: "CAL-QC-BAL-001 Rev.01 §4" },
+};
