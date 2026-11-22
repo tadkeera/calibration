@@ -1,0 +1,1265 @@
+# MASTER EXECUTION PROMPT
+# HPLC CALIBRATION PROTOCOL
+## AUTOMATIC PROTOCOL CREATION AND DATABASE REGISTRATION
+## SOURCE: ATTACHED HPLC.pdf
+
+---
+
+# GLOBAL INSTRUCTIONS
+
+Act as a Senior Full-Stack Developer, Database Engineer, Laboratory Calibration Specialist, and Analytical Instrument Qualification Expert.
+
+Your task is to automatically create and register a complete HPLC Calibration Protocol inside the existing Calibration Management System.
+
+The attached file HPLC.pdf is the PRIMARY AND AUTHORITATIVE SOURCE for this HPLC protocol.
+
+You must extract and implement all ten tests, their procedures, required input values, formulas, acceptance limits, and reference information from this PDF.
+
+Do not replace the supplied HPLC procedure with generic USP tests.
+
+Do not use the previous experimental HPLC tests.
+
+Do not ask the user to manually create the protocol.
+
+Do not stop after preparing a document or frontend design.
+
+You must perform the actual implementation in the existing application and database.
+
+The work must be completed in the following five phases.
+
+---
+
+# PHASE 1 — PROJECT INSPECTION AND SOURCE DOCUMENT ANALYSIS
+
+## 1.1 Inspect the Existing Application
+
+Before modifying anything, inspect:
+
+- Frontend architecture.
+- Backend architecture.
+- Database schema.
+- Equipment Master.
+- Existing Protocol module.
+- Existing Protocol revision system.
+- Existing Quality Manager approval system.
+- New Validation module.
+- Calculation engine.
+- Graphing library.
+- PDF report generation.
+- User roles and permissions.
+
+Identify the correct integration points.
+
+Do not rebuild the application.
+
+Reuse reliable existing functionality.
+
+## 1.2 Inspect the Attached HPLC.pdf
+
+Read all nine pages of the attached HPLC.pdf.
+
+The document is a scanned PDF.
+
+Use OCR and visual inspection of every page.
+
+Do not rely on extracted text alone.
+
+Inspect all handwritten values, tables, formulas, and acceptance criteria.
+
+The source document contains:
+
+| PDF Page | Content |
+|---|---|
+| 1 | Equipment information and summary acceptance limits |
+| 2 | Flow Rate Accuracy |
+| 3 | Lamp Reference Energy, UV Lamp Hours, Column Oven Temperature |
+| 4 | System and Injector Precision |
+| 5 | Wavelength Accuracy and Detector Linearity preparation |
+| 6 | Detector Linearity and Autosampler Linearity |
+| 7 | Carryover and Gradient Proportioning Valve |
+| 8 | Gradient Proportioning Valve calculations |
+| 9 | Final acceptance and conclusion |
+
+## 1.3 Equipment Identification
+
+The source instrument is:
+
+- Equipment Name: HPLC
+- Manufacturer: Shimadzu
+- Model: LC 2030 PLUS
+- Instrument ID: RLS/QC/HPLC/02
+
+The source record shows:
+
+- Calibration Date: 20/08/2022
+- Due Date: 20/02/2023
+
+These are historical source-record values.
+
+Do not automatically use these dates as the new equipment calibration dates.
+
+Use the actual Equipment Master record for current equipment identification.
+
+## 1.4 Source Authority
+
+Use HPLC.pdf as the protocol source.
+
+Do not label its acceptance limits as USP requirements.
+
+Store the source type as:
+
+Laboratory Calibration Reference
+
+Store the source document name:
+
+HPLC.pdf
+
+Store page references for every test and criterion.
+
+## 1.5 Source Discrepancies
+
+The PDF contains discrepancies that must be explicitly recorded.
+
+### Discrepancy A: Flow Rate
+
+Page 1 summary lists:
+
+- 1.0 mL/min
+- 1.5 mL/min
+- 2.0 mL/min
+
+Page 2 detailed procedure lists:
+
+- 0.5 mL/min
+- 1.5 mL/min
+- 2.5 mL/min
+
+For initial Draft configuration:
+
+Use the detailed procedure values from page 2:
+
+- 0.5 mL/min
+- 1.5 mL/min
+- 2.5 mL/min
+
+Record the page 1 discrepancy in protocol notes.
+
+Mark the flow-rate setpoint discrepancy:
+
+Pending Quality Review
+
+Do not silently hide this discrepancy.
+
+### Discrepancy B: Detector Linearity
+
+Page 1 contains wording that appears inconsistent with the detailed method.
+
+Page 6 explicitly states:
+
+Correlation coefficient should not be less than 0.99.
+
+Use:
+
+r >= 0.99
+
+Record the wording discrepancy from page 1.
+
+### Discrepancy C: Gradient Proportioning Valve
+
+The document specifies:
+
+Setting value ±2.0%
+
+Interpret the tolerance initially as ±2.0 percentage points.
+
+Record this interpretation for Quality Manager review.
+
+### Discrepancy D: UV Lamp Hours
+
+The document states:
+
+Minimum 2000 hours to replace the UV lamp.
+
+Treat this as a lamp replacement/maintenance recommendation, not a normal calibration pass criterion.
+
+### Phase 1 Deliverable
+
+Prepare an internal source mapping containing:
+
+- Test name.
+- PDF page.
+- Procedure.
+- Input fields.
+- Number of readings.
+- Formula.
+- Acceptance criterion.
+- Source discrepancy, if any.
+
+Then proceed to Phase 2.
+
+Do not ask the user to manually enter these values.
+
+---
+
+# PHASE 2 — CREATE THE HPLC PROTOCOL AND ALL TEN TESTS
+
+## 2.1 Automatic Protocol Registration
+
+Create a protocol:
+
+Protocol Name:
+HPLC Calibration Protocol – Shimadzu LC 2030 PLUS
+
+Equipment Category:
+HPLC
+
+Protocol Revision:
+Rev.01
+
+Initial Status:
+Draft – Pending Quality Manager Approval
+
+Use the existing HPLC equipment record if available.
+
+Before creating a new equipment record:
+
+1. Search Equipment Master.
+2. Identify the existing HPLC record.
+3. Reuse the record if it exists.
+4. Do not create duplicate equipment records.
+5. If it does not exist, create the required HPLC equipment record according to existing database conventions.
+
+Create actual database records.
+
+Do not use mock data or local frontend arrays.
+
+## 2.2 Equipment Information Fields
+
+Create or associate these fields:
+
+### Identification
+
+- Equipment Name.
+- Equipment ID.
+- Manufacturer.
+- Model.
+- Serial Number.
+- Location.
+- Installation Date.
+- Calibration Date.
+- Due Date.
+
+### Chromatographic System
+
+- Pump Configuration.
+- Injector Type.
+- Autosampler Capacity.
+- Detector Type.
+- Detector Wavelength.
+- Column Type.
+- Column Dimensions.
+- Software Name.
+- Software Version.
+
+Do not invent missing equipment values.
+
+Use:
+
+Needs Equipment Information
+
+when a value is unavailable.
+
+---
+
+# 2.3 TEST 1 — FLOW RATE ACCURACY
+
+Source:
+HPLC.pdf, page 2.
+
+Create three measurement points:
+
+| Point | Set Flow Rate |
+|---|---:|
+| A | 0.5 mL/min |
+| B | 1.5 mL/min |
+| C | 2.5 mL/min |
+
+For each point, create these fields:
+
+- Set Flow Rate.
+- Collected Volume.
+- Time Taken.
+- Actual Flow.
+- Deviation.
+- Deviation Percentage.
+- Absolute Error Percentage.
+- Result.
+
+Default Collected Volume:
+
+10.0 mL
+
+Required input count:
+
+Three time measurements, one for each set flow rate.
+
+Formula:
+
+Actual Flow = 10.0 / Time Taken
+
+Deviation = Actual Flow - Set Flow Rate
+
+Deviation % =
+((Actual Flow - Set Flow Rate) / Set Flow Rate) × 100
+
+Absolute Error % =
+ABS(Deviation / Set Flow Rate) × 100
+
+Acceptance:
+
+ABS(Deviation %) <= 1.0
+
+Display:
+
+- Set Flow Rate.
+- Actual Flow.
+- Deviation.
+- Deviation %.
+- Absolute Error %.
+- Pass/Fail.
+
+Store the discrepancy between page 1 and page 2.
+
+---
+
+# 2.4 TEST 2 — LAMP REFERENCE ENERGY
+
+Source:
+HPLC.pdf, page 3.
+
+Create fields:
+
+- Wavelength.
+- Reference Energy.
+- Unit.
+
+Default wavelength:
+
+254 nm
+
+Required input count:
+
+One reference energy reading.
+
+Acceptance:
+
+Reference Energy >= 400 mV
+
+Display Pass/Fail.
+
+---
+
+# 2.5 TEST 3 — UV LAMP HOURS
+
+Source:
+HPLC.pdf, page 3.
+
+Create field:
+
+- Lamp Hours.
+
+Required input count:
+
+One reading.
+
+Source recommendation:
+
+2000 hours.
+
+Logic:
+
+- Below 2000 hours: No replacement threshold reached.
+- At or above 2000 hours: Generate lamp replacement/maintenance alert.
+
+Do not treat 2000 hours as a conventional calibration tolerance.
+
+Display:
+
+- Lamp Hours.
+- Maintenance Status.
+- Recommendation.
+
+---
+
+# 2.6 TEST 4 — HPLC COLUMN OVEN TEMPERATURE
+
+Source:
+HPLC.pdf, page 3.
+
+Create four temperature setpoints:
+
+- 25°C
+- 40°C
+- 50°C
+- 60°C
+
+For each setpoint, collect:
+
+1. Set Temperature.
+2. Observed Thermometer Temperature.
+3. Instrument Display Temperature.
+
+Required readings:
+
+Four setpoints.
+
+Eight observed temperature readings.
+
+Calculate:
+
+Thermometer Deviation =
+Observed Thermometer Temperature - Set Temperature
+
+Display Deviation =
+Instrument Display Temperature - Set Temperature
+
+Difference =
+Instrument Display Temperature - Observed Thermometer Temperature
+
+Acceptance:
+
+ABS(Deviation) <= 2.0°C
+
+Evaluate both observed temperatures against the setpoint.
+
+Display the difference between thermometer and instrument display separately.
+
+Do not invent an additional acceptance tolerance for the difference.
+
+---
+
+# 2.7 TEST 5 — SYSTEM AND INJECTOR PRECISION
+
+Source:
+HPLC.pdf, page 4.
+
+Create the test conditions:
+
+Mobile Phase:
+750 mL DI Water + 250 mL Methanol
+
+Preparation:
+Sonicate for 15 minutes.
+
+Column:
+25 cm × 4.6 mm C18
+
+Flow Rate:
+1.5 mL/min
+
+Wavelength:
+272 nm
+
+Injection Volume:
+20 µL
+
+Run Time:
+12 minutes
+
+Standard:
+Caffeine
+
+Stock Concentration:
+1000 ppm
+
+Working Standard:
+10 ppm
+
+Preparation:
+Dilute 1 mL of 1000 ppm stock to 100 mL.
+
+Number of Injections:
+5
+
+Create five injection records.
+
+Each record must contain:
+
+- Injection Number.
+- Retention Time.
+- Peak Area.
+
+Required inputs:
+
+5 Retention Time values.
+
+5 Peak Area values.
+
+Calculate separately for Retention Time and Peak Area:
+
+Mean = SUM(values) / n
+
+Sample SD =
+SQRT(SUM((xi - Mean)^2) / (n - 1))
+
+Deviation = xi - Mean
+
+RSD % = (SD / Mean) × 100
+
+Acceptance:
+
+Retention Time RSD <= 1.0%
+
+Peak Area RSD <= 2.0%
+
+Display:
+
+- Mean RT.
+- SD RT.
+- RSD RT.
+- Mean Peak Area.
+- SD Peak Area.
+- RSD Peak Area.
+- Individual deviations.
+- Pass/Fail.
+
+---
+
+# 2.8 TEST 6 — WAVELENGTH ACCURACY
+
+Source:
+HPLC.pdf, page 5.
+
+Use:
+
+Standard Solution:
+Caffeine 10 ppm.
+
+Create 11 measurement points:
+
+267, 268, 269, 270, 271, 272, 273, 274, 275, 276, 277 nm.
+
+For each wavelength, collect:
+
+- Wavelength.
+- Area Response.
+
+Required input count:
+
+11 Area Response readings.
+
+Calculate:
+
+Maximum Response = MAX(Area Response Values)
+
+Maximum Wavelength =
+Wavelength corresponding to Maximum Response.
+
+Acceptance:
+
+272 ± 2 nm
+
+Equivalent range:
+
+270 nm <= Maximum Wavelength <= 274 nm
+
+Display:
+
+- All 11 readings.
+- Maximum response.
+- Maximum wavelength.
+- Acceptance range.
+- Pass/Fail.
+
+---
+
+# 2.9 TEST 7 — DETECTOR LINEARITY
+
+Source:
+HPLC.pdf, pages 5–6.
+
+Use:
+
+Caffeine standard solutions.
+
+Stock concentration:
+1000 ppm.
+
+Create five concentration levels:
+
+| Level | Concentration | Stock Volume | Final Volume |
+|---|---:|---:|---:|
+| 1 | 10 ppm | 1 mL | 100 mL |
+| 2 | 20 ppm | 2 mL | 100 mL |
+| 3 | 30 ppm | 3 mL | 100 mL |
+| 4 | 40 ppm | 4 mL | 100 mL |
+| 5 | 50 ppm | 5 mL | 100 mL |
+
+For each concentration collect:
+
+- Concentration.
+- Peak Area.
+
+Required input count:
+
+5 Peak Area readings.
+
+Calculate Pearson Correlation Coefficient:
+
+r =
+SUM((xi - MeanX)(yi - MeanY))
+/
+SQRT(
+SUM((xi - MeanX)^2)
+*
+SUM((yi - MeanY)^2)
+)
+
+Also calculate:
+
+- Slope.
+- Intercept.
+- R².
+- Regression Equation.
+
+Acceptance:
+
+r >= 0.99
+
+Use Pearson r for the acceptance decision.
+
+Do not substitute R² for r.
+
+Record the wording discrepancy found in page 1.
+
+---
+
+# 2.10 TEST 8 — AUTOSAMPLER LINEARITY
+
+Source:
+HPLC.pdf, page 6.
+
+Use the same:
+
+- Mobile Phase.
+- Column.
+- Flow Rate.
+- Wavelength.
+- Standard Solution.
+
+Autosampler Capacity:
+
+100 µL.
+
+Create six injection volumes:
+
+| Level | Injection Volume |
+|---|---:|
+| 1 | 5 µL |
+| 2 | 10 µL |
+| 3 | 20 µL |
+| 4 | 50 µL |
+| 5 | 80 µL |
+| 6 | 100 µL |
+
+For each volume collect:
+
+- Injection Volume.
+- Peak Area.
+
+Required input count:
+
+6 Peak Area readings.
+
+Calculate:
+
+- Pearson Correlation Coefficient.
+- Slope.
+- Intercept.
+- R².
+- Regression Equation.
+
+Acceptance:
+
+r >= 0.99
+
+---
+
+# 2.11 TEST 9 — CARRYOVER TEST
+
+Source:
+HPLC.pdf, page 7.
+
+Create fields:
+
+- Blank Solution Peak Area.
+- Carryover Solution Peak Area.
+
+Required input count:
+
+Two peak area readings.
+
+Formula:
+
+Carryover % =
+(Blank Peak Area / Carryover Solution Peak Area) × 100
+
+Acceptance:
+
+Carryover % <= 0.01%
+
+Validate:
+
+- Carryover solution area must be greater than zero.
+- No division by zero.
+- Both values must be numeric and valid.
+
+The handwritten carryover solution preparation details must be stored as source notes.
+
+If the concentration or preparation volume cannot be confidently read, mark:
+
+Preparation Details Pending Verification
+
+Do not invent missing preparation values.
+
+---
+
+# 2.12 TEST 10 — GRADIENT PROPORTIONING VALVE
+
+Source:
+HPLC.pdf, pages 7–9.
+
+Test conditions:
+
+Wavelength:
+254 nm
+
+Flow Rate:
+1.0 mL/min
+
+Pump A:
+Water
+
+Pumps B, C, D:
+Acetone
+
+Create three pump combinations:
+
+1. Pump A & B.
+2. Pump A & C.
+3. Pump A & D.
+
+For each combination create three setting points:
+
+- 10%.
+- 50%.
+- 90%.
+
+Total required measurement points:
+
+9.
+
+For each point collect:
+
+- Pump Combination.
+- Setting Percentage.
+- Height at 0%.
+- Height at Setting Percentage.
+- Height at 100%.
+
+Formula:
+
+Actual Concentration % =
+((Height at Setting - Height at 0%)
+/
+(Height at 100% - Height at 0%))
+× 100
+
+Deviation =
+Actual Concentration % - Setting Percentage
+
+Acceptance:
+
+ABS(Deviation) <= 2.0 percentage points
+
+Validate:
+
+- Height at 100% must not equal Height at 0%.
+- All required heights must be numeric.
+- Prevent division by zero.
+
+Store the interpretation of ±2.0 as percentage points for Quality Manager review.
+
+---
+
+# 2.13 TEST COUNT VERIFICATION
+
+After creating the tests, verify that the protocol contains exactly these ten tests:
+
+1. Flow Rate Accuracy.
+2. Lamp Reference Energy.
+3. UV Lamp Hours.
+4. HPLC Column Oven Temperature.
+5. System and Injector Precision.
+6. Wavelength Accuracy.
+7. Detector Linearity.
+8. Autosampler Linearity.
+9. Carryover Test.
+10. Gradient Proportioning Valve.
+
+Do not add unrelated USP System Suitability tests to this protocol.
+
+Do not omit any of the ten source tests.
+
+---
+
+# PHASE 3 — CALCULATION ENGINE, ACCEPTANCE LIMITS, AND DATABASE REGISTRATION
+
+## 3.1 Calculation Engine
+
+Implement all formulas using the existing calculation engine.
+
+Do not create duplicate calculation functions if reliable equivalents already exist.
+
+The engine must support:
+
+- Mean.
+- Sample Standard Deviation.
+- Individual Deviation.
+- Absolute Deviation.
+- RSD%.
+- Percentage Error.
+- Absolute Error%.
+- Actual Flow Rate.
+- Temperature Deviation.
+- Pearson Correlation Coefficient.
+- Slope.
+- Intercept.
+- R².
+- Carryover Percentage.
+- Gradient Actual Concentration.
+- Gradient Deviation.
+- Maximum Response Detection.
+
+## 3.2 Calculation Rules
+
+For every test:
+
+1. Validate input completeness.
+2. Validate units.
+3. Prevent division by zero.
+4. Prevent invalid mathematical operations.
+5. Calculate using full numerical precision.
+6. Round only for display.
+7. Preserve raw input values.
+8. Preserve unrounded calculated values.
+9. Display calculation results clearly.
+10. Apply the test-specific acceptance rule.
+
+## 3.3 Result Statuses
+
+Support:
+
+- Pass.
+- Fail.
+- Pending.
+- Not Applicable.
+
+If an input is missing:
+
+Pending
+
+If an acceptance criterion is not defined:
+
+Pending Acceptance Criteria
+
+Do not classify missing criteria as Pass.
+
+## 3.4 Database Registration
+
+Register all protocol data in the real application database.
+
+Create or associate:
+
+- HPLC Equipment.
+- HPLC Protocol.
+- Protocol Revision Rev.01.
+- Protocol Conditions.
+- Protocol Tests.
+- Test Input Fields.
+- Calculation Formulas.
+- Acceptance Criteria.
+- Source References.
+- Protocol Notes.
+- Source Discrepancies.
+
+Use the existing schema and conventions.
+
+Do not use frontend mock data.
+
+## 3.5 Idempotent Seeding
+
+Create the protocol using stable identifiers.
+
+Running the seeding process more than once must not create:
+
+- Duplicate equipment records.
+- Duplicate HPLC protocols.
+- Duplicate revisions.
+- Duplicate tests.
+- Duplicate formulas.
+- Duplicate acceptance criteria.
+
+Use update-or-create logic where appropriate.
+
+## 3.6 Initial Status
+
+Set the initial revision to:
+
+Rev.01 – Draft
+
+Do not automatically approve it.
+
+Preserve the source discrepancies and review notes.
+
+---
+
+# PHASE 4 — NEW VALIDATION INTEGRATION, RESULTS, AND GRAPHS
+
+## 4.1 Dynamic Protocol Loading
+
+Connect the HPLC protocol to the HPLC equipment record.
+
+When a user opens New Validation and selects HPLC:
+
+1. Retrieve the active approved HPLC protocol.
+2. Load its ten tests.
+3. Load the associated test conditions.
+4. Generate the correct input fields.
+5. Load the calculation formulas.
+6. Load acceptance criteria.
+7. Allow the user to enter the readings.
+
+Do not hardcode HPLC test forms.
+
+The protocol must drive the form dynamically.
+
+## 4.2 Calibration Execution
+
+When the user clicks Calibration:
+
+1. Validate all required values.
+2. Execute the relevant formulas.
+3. Calculate individual deviations.
+4. Calculate SD and RSD where applicable.
+5. Calculate correlation coefficients.
+6. Calculate regression information.
+7. Calculate carryover.
+8. Calculate gradient actual concentrations.
+9. Compare results against acceptance criteria.
+10. Determine the result of each test.
+11. Determine the overall calibration result.
+
+## 4.3 Results Display
+
+Display:
+
+- Equipment information.
+- Protocol revision.
+- Test conditions.
+- All entered values.
+- Mean.
+- SD.
+- RSD%.
+- Individual deviations.
+- Percentage errors.
+- Correlation coefficients.
+- Regression equations.
+- Actual flow rates.
+- Temperature deviations.
+- Carryover percentage.
+- Gradient actual concentration.
+- Acceptance limits.
+- Pass/Fail/Pending statuses.
+
+Display only applicable calculations for each test.
+
+## 4.4 Graphs
+
+Generate graphs from actual entered data.
+
+Required applicable graphs:
+
+### System and Injector Precision
+
+- Retention Time by Injection Number.
+- Peak Area by Injection Number.
+
+### Wavelength Accuracy
+
+- Wavelength versus Area Response.
+- Clearly identify the maximum response and wavelength.
+
+### Detector Linearity
+
+- Concentration versus Peak Area.
+- Regression Line.
+- Equation.
+- Correlation Coefficient.
+- R².
+
+### Autosampler Linearity
+
+- Injection Volume versus Peak Area.
+- Regression Line.
+- Equation.
+- Correlation Coefficient.
+- R².
+
+### Flow Rate Accuracy
+
+- Set Flow versus Actual Flow.
+- Deviation by Set Flow.
+
+### Column Oven Temperature
+
+- Set Temperature versus Thermometer Reading.
+- Set Temperature versus Instrument Display.
+
+### Gradient Proportioning Valve
+
+- Setting Percentage versus Actual Concentration.
+- Separate series for Pump A&B, A&C, and A&D.
+
+Do not create fabricated data.
+
+Do not create a graph if the required input data are missing.
+
+## 4.5 PDF Report
+
+Generate a professional HPLC Calibration Report.
+
+### Section A — Numerical Report
+
+Include:
+
+- Equipment information.
+- Calibration date.
+- Validation ID.
+- Protocol revision.
+- Test conditions.
+- Input readings.
+- Calculated values.
+- Acceptance limits.
+- Pass/Fail/Pending results.
+- Overall decision.
+- Source references.
+
+Display numerical data in organized tables.
+
+### Section B — Graphical Report
+
+Insert a page break after the numerical tables.
+
+Place graphs and curves on separate pages.
+
+Rules:
+
+- Do not place graphs inside numerical tables.
+- Do not place graphs beside numerical tables.
+- Use readable axis labels.
+- Include units.
+- Include legends.
+- Include regression equations where applicable.
+- Do not create empty graph pages.
+- Generate pages dynamically according to available graphs.
+
+## 4.6 Historical Data Integrity
+
+Each validation must preserve:
+
+- Protocol ID.
+- Protocol Revision.
+- Test Definitions.
+- Acceptance Criteria.
+- Formula Versions.
+- Source References.
+- Raw Readings.
+- Calculated Results.
+- Graph Data.
+- Final Decision.
+
+Later protocol revisions must not modify historical validation records.
+
+---
+
+# PHASE 5 — VERIFICATION, TESTING, AND FINAL DELIVERY
+
+## 5.1 Protocol Verification
+
+Verify:
+
+- HPLC protocol exists in the database.
+- Rev.01 exists.
+- Protocol is linked to the correct equipment.
+- Exactly ten tests exist.
+- All input fields are registered.
+- All formulas are registered.
+- All acceptance criteria are registered.
+- All source references are stored.
+- No duplicate records exist.
+
+## 5.2 Test Verification
+
+Test each of the ten tests individually.
+
+Verify:
+
+1. Required reading count.
+2. Input validation.
+3. Formula accuracy.
+4. Acceptance limit evaluation.
+5. Pass/Fail logic.
+6. Pending logic.
+7. Displayed results.
+
+## 5.3 Mathematical Verification
+
+Use test data to verify:
+
+- Mean.
+- Sample SD.
+- RSD%.
+- Deviation.
+- Flow Rate.
+- Temperature Deviation.
+- Pearson Correlation.
+- Regression Slope.
+- Intercept.
+- R².
+- Carryover%.
+- Gradient Concentration.
+
+Compare application calculations against independently calculated expected values.
+
+## 5.4 Graph Verification
+
+Verify:
+
+- Correct X and Y data.
+- Correct units.
+- Correct regression equations.
+- Correct data points.
+- Correct labels.
+- No fabricated values.
+
+## 5.5 PDF Verification
+
+Verify:
+
+- Numerical tables are readable.
+- Graphs appear on separate pages.
+- No table or graph is clipped.
+- Axis labels are readable.
+- Report matches the saved validation data.
+- Protocol revision is correctly displayed.
+
+## 5.6 Build and Integration
+
+Run:
+
+- Project build.
+- TypeScript checks.
+- Available automated tests.
+- Backend tests.
+- Database migration checks.
+- Frontend integration tests.
+
+Fix critical errors before declaring completion.
+
+## 5.7 Final Delivery Report
+
+Provide:
+
+### Equipment
+
+- Equipment record ID.
+- Equipment name.
+- Manufacturer.
+- Model.
+
+### Protocol
+
+- Protocol ID.
+- Revision.
+- Status.
+
+### Test Registration
+
+Confirm all ten tests.
+
+### Calculation Registration
+
+List all formulas implemented.
+
+### Acceptance Criteria
+
+List all acceptance limits implemented.
+
+### Source Discrepancies
+
+List:
+
+- Flow rate setpoint discrepancy.
+- Detector linearity wording discrepancy.
+- Lamp hours interpretation.
+- Gradient tolerance interpretation.
+
+### Integration
+
+Confirm:
+
+- Protocol page integration.
+- New Validation integration.
+- Calculation engine integration.
+- Graph generation.
+- PDF reporting.
+
+### Testing
+
+Report:
+
+- Tests passed.
+- Tests failed.
+- Remaining issues.
+- Build status.
+
+### Final Status
+
+Use one of:
+
+- Completed.
+- Partially Completed.
+- Blocked.
+
+Do not claim full completion if critical functionality is not working.
+
+---
+
+# FINAL EXECUTION INSTRUCTION
+
+Execute all five phases.
+
+Automatically create and register the HPLC Calibration Protocol using the attached HPLC.pdf.
+
+The user must not manually create the protocol, tests, input fields, formulas, or acceptance criteria.
+
+Create the actual database records and integrate the protocol with New Validation.
+
+Do not stop after analysis or documentation.
+
+Do not fabricate missing technical information.
+
+Preserve all source references and discrepancies.
+
+The initial protocol must remain Draft until approved by the Quality Manager.

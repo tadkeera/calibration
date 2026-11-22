@@ -31,7 +31,7 @@ function equipmentDto(e: EquipmentView | null) {
 }
 
 /** Protocols linked to an equipment record (by equipment link of the current revision or header instrument key). */
-async function protocolsForEquipment(instrumentKey: string): Promise<ProtocolRow[]> {
+export async function protocolsForEquipment(instrumentKey: string): Promise<ProtocolRow[]> {
   const rows = await protocolStore().select<ProtocolRow>("protocols", { order: [{ column: "protocol_number" }] });
   const out: ProtocolRow[] = [];
   for (const p of rows) {
@@ -61,6 +61,8 @@ function protocolSummary(p: ProtocolRow, revisions: RevisionSummaryRow[]) {
 }
 
 export async function protocolBoard(actor: Actor) {
+  // Source protocols supplied by the user (HPLC.pdf) are registered automatically (idempotent, Draft only).
+  await import("./hplcSeed").then(m => m.ensureHplcProtocolRegistered(actor)).catch(() => undefined);
   const [equipment, duties] = await Promise.all([listEquipmentData(), dutiesOf(actor)]);
   const cards = [];
   for (const card of PROTOCOL_EQUIPMENT_CARDS) {

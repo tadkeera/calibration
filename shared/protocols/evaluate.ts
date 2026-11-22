@@ -11,6 +11,7 @@ import {
   BUILTIN_FORMULA_TEXT,
   CalcError,
   applyRounding,
+  levelArgMax,
   runCalculation,
   stats,
   type CalcVariables,
@@ -18,8 +19,25 @@ import {
 import type { Calculation, Criterion, ProtocolContent, ProtocolTest } from "./model";
 import { buildTestGraphs, type GraphData } from "./graphs";
 
-export const EXECUTION_STATUSES = ["PASS", "FAIL", "INCOMPLETE", "NOT APPLICABLE", "UNDER REVIEW"] as const;
+/**
+ * PASS / FAIL — decision; INCOMPLETE — "Pending" (required input missing or invalid);
+ * NOT APPLICABLE; UNDER REVIEW — pending acceptance criteria / reviewer assessment;
+ * RECORDED — informational test (recorded + advisories only), never part of the overall decision.
+ */
+export const EXECUTION_STATUSES = ["PASS", "FAIL", "INCOMPLETE", "NOT APPLICABLE", "UNDER REVIEW", "RECORDED"] as const;
 export type ExecutionStatus = (typeof EXECUTION_STATUSES)[number];
+/** Overall statuses (RECORDED is test-level only). */
+export type OverallStatus = Exclude<ExecutionStatus, "RECORDED">;
+/** User-facing wording of the statuses. */
+export const STATUS_DISPLAY: Record<ExecutionStatus, string> = {
+  PASS: "Pass",
+  FAIL: "Fail",
+  INCOMPLETE: "Pending",
+  "NOT APPLICABLE": "Not Applicable",
+  "UNDER REVIEW": "Pending Acceptance Criteria / Review",
+  RECORDED: "Recorded (informational)",
+};
+export const PENDING_ACCEPTANCE_CRITERIA = "Pending Acceptance Criteria";
 
 export const CALCULATED_PASS_DISCLAIMER =
   "Calculated outcomes are technical results only. A calculated PASS is not an approval; the authorised review and approval workflow remains in control.";
@@ -50,7 +68,12 @@ export type CalcResult = {
   formula: string;
   formulaRevision: string;
   error: string | null;
+  /** Level label (display only). */
+  levelLabel?: string | null;
+  /** Set when the value needs reviewer attention (e.g. tied maxima); criteria using it are not decided automatically. */
+  review?: string | null;
 };
+export type AdvisoryResult = { key: string; parameter: string; value: number | null; limit: string; triggered: boolean | null; message: string; referenceClause: string };
 export type CriterionResult = {
   key: string;
   levelKey: string | null;
@@ -74,11 +97,14 @@ export type TestResult = {
   criteria: CriterionResult[];
   /** Graphs configured for the test, built from the actual readings (empty when not configured / data insufficient). */
   graphs: GraphData[];
+  /** Non-decisional advisories (maintenance alerts) — never change PASS / FAIL. */
+  advisories?: AdvisoryResult[];
+  informational?: boolean;
 };
 export type ExecutionEvaluation = {
   engineVersion: string;
   calculatedAt: string;
-  overall: ExecutionStatus;
+  overall: OverallStatus;
   counts: Record<ExecutionStatus, number>;
   tests: TestResult[];
   disclaimer: string;
@@ -142,13 +168,27 @@ function expectedReadings(test: ProtocolTest) {
   return Math.max(1, test.readingsRequired || 0);
 }
 
-function fieldNumber(m: TestMeasurement | undefined, key: string) {
-  const v = m?.fields?.[key];
+function isBlank(v: unknown) {
+  return v === undefined || v === null || (typeof v === "string" && !v.trim()) || (Array.isArray(v) && v.length === 0);
+}
+
+/** Recorded field value, or the source-defined default when nothing was recorded. */
+function fieldValue(m: TestMeasurement | undefined, field: { key: string; defaultValue?: number | string }) {
+  const v = m?.fields?.[field.key];
+  if (isBlank(v) && field.defaultValue !== undefined) return field.defaultValue;
+  return v;
+}
+
+function fieldNumber(m: TestMeasurement | undefined, field: { key: string; defaultValue?: number | string }) {
+  const v = fieldValue(m, field);
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
-function isBlank(v: unknown) {
-  return v === undefined || v === null || (typeof v === "string" && !v.trim()) || (Array.isArray(v) && v.length === 0);
+/** Input-range validation (e.g. time, volume and areas must be > 0). Returns an error text or null. */
+function rangeProblem(value: number, rule: { gt?: number; gte?: number }) {
+  if (rule.gt !== undefined && !(value > rule.gt)) return `must be greater than ${rule.gt}`;
+  if (rule.gte !== undefined && !(value >= rule.gte)) return `must be at least ${rule.gte}`;
+  return null;
 }
 
 function evaluateTest(sectionKey: string, test: ProtocolTest, m: TestMeasurement | undefined, prior: Map<string, ExecutionStatus>): TestResult {
@@ -218,14 +258,43 @@ function evaluateTest(sectionKey: string, test: ProtocolTest, m: TestMeasurement
       if (levelReference(level.key, level.nominal) === null) missing(`Level ${level.label || level.key}: reference value not recorded.`);
     });
   test.fields.forEach(field => {
-    if (field.required && field.type !== "boolean" && isBlank(m?.fields?.[field.key])) missing(`Required field "${field.label || field.key}" not recorded.`);
+    if (field.required && field.type !== "boolean" && isBlank(fieldValue(m, field))) missing(`Required field "${field.label || field.key}" not recorded.`);
     if (field.required && field.type === "boolean" && typeof m?.fields?.[field.key] !== "boolean") missing(`Checklist item "${field.label || field.key}" not answered.`);
+    if (field.defaultValue !== undefined && isBlank(m?.fields?.[field.key])) result.notes.push(`${field.label || field.key}: source-defined value ${field.defaultValue}${field.unit ? ` ${field.unit}` : ""} used.`);
   });
+  // Input validation — an invalid value is treated like a missing one (never calculated, never a pass).
+  const invalid = new Set<string>();
+  test.fields.forEach(field => {
+    const v = fieldNumber(m, field);
+    const problem = field.type === "number" && v !== null ? rangeProblem(v, field) : null;
+    if (problem) {
+      invalid.add(field.key);
+      missing(`${field.label || field.key} = ${v} is invalid: ${problem}.`);
+    }
+  });
+  const readingKeys = test.readingKeys ?? [];
+  const checkReadingSet = (values: Array<number | null>, where: string) =>
+    values.map((v, i) => {
+      const rk = readingKeys[i];
+      if (!rk || v === null || v === undefined) return v;
+      const problem = rangeProblem(v, rk);
+      if (!problem) return v;
+      missing(`${where}${rk.label || rk.key} = ${v} is invalid: ${problem}.`);
+      return null;
+    });
+  levelValues.forEach((values, key) => {
+    const level = test.levels.find(l => l.key === key);
+    levelValues.set(key, checkReadingSet(values, `${level?.label || key}: `));
+  });
+  if (numericReadings(test) && readingKeys.length) {
+    const checked = checkReadingSet(readings.slice(0, expectedReadings(test)), "");
+    checked.forEach((v, i) => (readings[i] = v));
+  }
 
-  // Calculations.
+  // Calculations (full precision; rounding is applied to the displayed value only).
   const vars: CalcVariables = {};
   test.fields.forEach(f => {
-    if (f.type === "number") vars[f.key] = fieldNumber(m, f.key);
+    if (f.type === "number") vars[f.key] = invalid.has(f.key) ? null : fieldNumber(m, f);
   });
   const base = numericReadings(test) ? readings.slice(0, expectedReadings(test)) : test.dataType === "multi-level" ? Array.from(levelValues.values()).flat() : [];
   const safe = (fn: () => number) => {
@@ -244,15 +313,32 @@ function evaluateTest(sectionKey: string, test: ProtocolTest, m: TestMeasurement
     vars.max = safe(() => stats.max(base));
   }
   vars.reference = testReference;
+  // Named readings: per test (numeric / series) or as series over the levels (multi-level).
+  if (readingKeys.length) {
+    if (test.dataType === "multi-level")
+      readingKeys.forEach((rk, i) => {
+        const series = test.levels.map(l => (levelValues.get(l.key) ?? [])[i] ?? null);
+        vars[rk.key] = series.length && series.every(v => v !== null) ? (series as number[]) : null;
+      });
+    else readingKeys.forEach((rk, i) => (vars[rk.key] = readings[i] ?? null));
+  }
   const levelsInput = test.levels.map(l => ({ key: l.key, reference: levelReference(l.key, l.nominal), values: levelValues.get(l.key) ?? [] }));
+  const levelLabel = (key: string | null) => (key ? test.levels.find(l => l.key === key)?.label || key : null);
   const calcByKey = new Map<string, CalcResult[]>();
   const runOne = (calc: Calculation, levelKey: string | null, values: Array<number | null>, reference: number | null, extra: CalcVariables) => {
     const formula = calc.kind === "custom" ? calc.formula : BUILTIN_FORMULA_TEXT[calc.kind];
-    const out: CalcResult = { key: calc.key, label: calc.label || calc.key, levelKey, raw: null, value: null, unit: calc.unit, formula, formulaRevision: calc.formulaRevision, error: null };
+    const out: CalcResult = { key: calc.key, label: calc.label || calc.key, levelKey, levelLabel: levelLabel(levelKey), raw: null, value: null, unit: calc.unit, formula, formulaRevision: calc.formulaRevision, error: null, review: null };
     try {
       const raw = runCalculation(calc, { values, reference, levels: levelsInput, variables: { ...vars, ...extra } });
       out.raw = raw;
       out.value = applyRounding(raw, calc);
+      if (calc.kind === "level-reference-at-max") {
+        const arg = levelArgMax(levelsInput);
+        if (arg.ties.length > 1) {
+          out.review = `Tie: the maximum response ${arg.max} occurs at ${arg.ties.map(t => t.reference).join(", ")} — flagged for review (no level is selected silently).`;
+          result.notes.push(out.review);
+        }
+      }
     } catch (error) {
       out.error = error instanceof CalcError ? error.message : "Calculation failed";
     }
@@ -260,24 +346,40 @@ function evaluateTest(sectionKey: string, test: ProtocolTest, m: TestMeasurement
     calcByKey.set(calc.key, [...(calcByKey.get(calc.key) ?? []), out]);
     return out;
   };
+  /** Earlier per-level results of the same level (unrounded) — lets per-level formulas build on each other. */
+  const levelChain = new Map<string, CalcVariables>();
   for (const calc of test.calculations) {
     if (calc.scope === "per-level" && test.levels.length) {
       test.levels.forEach(level => {
         const values = levelValues.get(level.key) ?? [];
         const ref = levelReference(level.key, level.nominal);
-        runOne(calc, level.key, values, ref, {
+        const named: CalcVariables = {};
+        readingKeys.forEach((rk, i) => (named[rk.key] = values[i] ?? null));
+        const chain = levelChain.get(level.key) ?? {};
+        const out = runOne(calc, level.key, values, ref, {
+          ...chain,
+          ...named,
           readings: values.every(v => v !== null) && values.length ? (values as number[]) : null,
           reference: ref,
           n: values.length,
           mean: safe(() => stats.mean(values)),
           sd: safe(() => stats.sd(values)),
         });
+        levelChain.set(level.key, { ...chain, [calc.key]: out.raw });
       });
     } else {
       const out = runOne(calc, null, base, testReference, {});
-      if (out.value !== null) vars[calc.key] = out.value;
-      else vars[calc.key] = null;
+      vars[calc.key] = out.raw;
     }
+  }
+
+  // Regression equation (when the test calculates both slope and intercept).
+  const slopeCalc = test.calculations.find(c => c.kind === "linearity-slope" && c.scope === "test");
+  const interceptCalc = test.calculations.find(c => c.kind === "linearity-intercept" && c.scope === "test");
+  if (slopeCalc && interceptCalc) {
+    const m = calcByKey.get(slopeCalc.key)?.[0]?.raw;
+    const b = calcByKey.get(interceptCalc.key)?.[0]?.raw;
+    if (typeof m === "number" && typeof b === "number") result.notes.push(`Regression equation: y = ${fmtNum(m)}·x ${b < 0 ? "−" : "+"} ${fmtNum(Math.abs(b))}`);
   }
 
   // Criteria.
@@ -302,20 +404,22 @@ function evaluateTest(sectionKey: string, test: ProtocolTest, m: TestMeasurement
       else record(null, v, v ? "PASS" : "FAIL", v ? "Confirmed." : "Not confirmed.");
       continue;
     }
-    const evaluateNumber = (levelKey: string | null, value: number | null, error: string | null) => {
-      if (value === null) {
+    const evaluateNumber = (levelKey: string | null, value: number | null, error: string | null, raw: number | null = value, review: string | null = null) => {
+      if (value === null || raw === null) {
         record(levelKey, null, "INCOMPLETE", error ?? `Value for "${c.parameter}" not available.`);
         return;
       }
+      // Compared with the value after the protocol's own rounding rule (none configured = full precision).
       const ok = compareValue(value, c);
-      if (ok === null) record(levelKey, value, "UNDER REVIEW", "Acceptance limit not established (PENDING TECHNICAL VERIFICATION).");
-      else record(levelKey, value, ok ? "PASS" : "FAIL", `Value ${value} vs ${describeLimit(c)}.`);
+      if (ok === null) record(levelKey, value, "UNDER REVIEW", `${PENDING_ACCEPTANCE_CRITERIA}: acceptance limit not established (PENDING TECHNICAL VERIFICATION).`);
+      else if (review) record(levelKey, value, "UNDER REVIEW", `${review} Indicative ${ok ? "PASS" : "FAIL"} vs ${describeLimit(c)}.`);
+      else record(levelKey, value, ok ? "PASS" : "FAIL", `Value ${fmtNum(value)} vs ${describeLimit(c)}.`);
     };
     const calcResults = calcByKey.get(c.parameter);
     if (calcResults) {
       const targets = c.levelKey ? calcResults.filter(r => r.levelKey === c.levelKey) : calcResults;
       if (!targets.length) record(c.levelKey, null, "INCOMPLETE", `No result for level ${c.levelKey}.`);
-      targets.forEach(r => evaluateNumber(r.levelKey, r.value, r.error));
+      targets.forEach(r => evaluateNumber(r.levelKey, r.value, r.error, r.raw, r.review ?? null));
       continue;
     }
     if (c.parameter === "reading" || c.parameter === "each-reading") {
@@ -326,18 +430,40 @@ function evaluateTest(sectionKey: string, test: ProtocolTest, m: TestMeasurement
     }
     const field = test.fields.find(f => f.key === c.parameter);
     if (field) {
-      evaluateNumber(null, fieldNumber(m, field.key), `Field "${field.label || field.key}" not recorded.`);
+      evaluateNumber(null, invalid.has(field.key) ? null : fieldNumber(m, field), `Field "${field.label || field.key}" not recorded or invalid.`);
       continue;
     }
     record(c.levelKey, null, "INCOMPLETE", `Parameter "${c.parameter}" is not a configured calculation, field or "reading".`);
   }
 
-  // Graphs (only those configured for the test, from the actual readings).
+  // Advisories (maintenance / replacement alerts) — informative only.
+  if (test.advisories?.length) {
+    result.advisories = test.advisories.map(a => {
+      const calcValue = calcByKey.get(a.parameter)?.find(r => r.levelKey === null);
+      const field = test.fields.find(f => f.key === a.parameter);
+      const value = calcValue ? calcValue.raw : field && !invalid.has(field.key) ? fieldNumber(m, field) : null;
+      const limit = `${a.comparison} ${a.limit}${a.unit ? ` ${a.unit}` : ""}`;
+      if (value === null) return { key: a.key, parameter: a.parameter, value: null, limit, triggered: null, message: "Not evaluated — value not recorded.", referenceClause: a.referenceClause };
+      const triggered = a.comparison === ">=" ? value >= a.limit : a.comparison === ">" ? value > a.limit : a.comparison === "<=" ? value <= a.limit : value < a.limit;
+      return { key: a.key, parameter: a.parameter, value, limit, triggered, message: triggered ? a.alertMessage : a.okMessage, referenceClause: a.referenceClause };
+    });
+    result.advisories.forEach(a => a.triggered && result.notes.push(`ALERT: ${a.message}`));
+  }
+
+  // Graphs (only those configured for the test, from the actual readings and calculated values).
   try {
+    const levelCalcs: Record<string, Record<string, number | null>> = {};
+    result.calculations.forEach(r => {
+      if (!r.levelKey) return;
+      (levelCalcs[r.levelKey] ??= {})[r.key] = r.raw;
+    });
     result.graphs = buildTestGraphs(test, {
       readings: base,
       reference: testReference,
-      levels: test.levels.map(l => ({ key: l.key, label: l.label, reference: levelReference(l.key, l.nominal), values: levelValues.get(l.key) ?? [] })),
+      levels: test.levels.map(l => ({ key: l.key, label: l.label, group: l.group, reference: levelReference(l.key, l.nominal), values: levelValues.get(l.key) ?? [] })),
+      readingKeys: readingKeys.map(r => ({ key: r.key, label: r.label, unit: r.unit })),
+      levelCalcs,
+      calcUnits: Object.fromEntries(test.calculations.map(c => [c.key, { label: c.label || c.key, unit: c.unit }])),
     });
   } catch {
     result.graphs = [];
@@ -345,11 +471,17 @@ function evaluateTest(sectionKey: string, test: ProtocolTest, m: TestMeasurement
 
   // Aggregate.
   const statuses = result.criteria.map(c => c.status);
+  if (test.decisionRole === "informational") {
+    result.informational = true;
+    result.status = !complete ? "INCOMPLETE" : statuses.includes("FAIL") ? "FAIL" : "RECORDED";
+    if (result.status === "RECORDED") result.notes.push("Informational test — recorded and assessed by advisories only; not part of the PASS / FAIL decision.");
+    return result;
+  }
   if (statuses.includes("FAIL")) result.status = "FAIL";
   else if (!complete || statuses.includes("INCOMPLETE")) result.status = "INCOMPLETE";
   else if (statuses.includes("UNDER REVIEW") || !statuses.length) {
     result.status = "UNDER REVIEW";
-    if (!statuses.length) result.notes.push("No acceptance criterion configured — reviewer assessment required.");
+    if (!statuses.length) result.notes.push(`${PENDING_ACCEPTANCE_CRITERIA}: no acceptance criterion configured — reviewer assessment required.`);
   } else result.status = "PASS";
   return result;
 }
@@ -368,13 +500,17 @@ export function evaluateExecution(content: ProtocolContent, measurements: Measur
       tests.push(r);
     }
   }
-  const counts = Object.fromEntries(["PASS", "FAIL", "INCOMPLETE", "NOT APPLICABLE", "UNDER REVIEW"].map(s => [s, 0])) as Record<ExecutionStatus, number>;
+  const counts = Object.fromEntries(EXECUTION_STATUSES.map(s => [s, 0])) as Record<ExecutionStatus, number>;
   tests.forEach(t => counts[t.status]++);
-  let overall: ExecutionStatus;
+  let overall: OverallStatus;
   if (counts.FAIL) overall = "FAIL";
   else if (counts.INCOMPLETE) overall = "INCOMPLETE";
   else if (counts["UNDER REVIEW"]) overall = "UNDER REVIEW";
   else if (counts.PASS) overall = "PASS";
   else overall = "NOT APPLICABLE";
   return { engineVersion: CALC_ENGINE_VERSION, calculatedAt: now.toISOString(), overall, counts, tests, disclaimer: CALCULATED_PASS_DISCLAIMER };
+}
+
+function fmtNum(v: number) {
+  return String(Number(v.toPrecision(12)));
 }

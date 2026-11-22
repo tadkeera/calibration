@@ -28,7 +28,7 @@ let author: svc.Actor;
 
 /** Fixture inputs per protocol (see file header). */
 const FIXTURES: Record<string, Measurements> = {
-  "CAL-QC-HPLC-001": { T01: { fields: { set_1: 0.5, vol_1: 10, time_1: 20, set_2: 1.5, vol_2: 10, time_2: 6.6, set_3: 2.5, vol_3: 10, time_3: 4 }, comment: "Fixture: HPLC.pdf p.2 handwritten values" } },
+  "CAL-QC-HPLC-001": { hplc_flow_rate: { levels: { F1: [10.0], F2: [6.6], F3: [5.0] }, comment: "Fixture: HPLC.pdf p.2 handwritten times" } },
   "CAL-QC-BAL-001": { T04: { readings: Array(10).fill(100.0001), fields: { d: 0.0001, m: 0.1 }, comment: "Synthetic fixture" } },
   "CAL-QC-UV-001": { T02: { fields: { instrument_type: "non-diode-array", wl_standard: "Holmium oxide", wl_cert: "FIXTURE" }, levelReferences: { UVL: 361.5, VISL: 536.4 }, levels: { UVL: [361.6, 361.5, 361.7, 361.6, 361.5, 361.6], VISL: [537.9, 538.0, 537.8, 538.1, 537.9, 538.0] } } },
   "CAL-QC-POL-001": { T06: { notApplicable: true, naJustification: "Fixture: demonstrates a justified NOT APPLICABLE entry" } },

@@ -389,7 +389,23 @@ export const BUILTIN_FORMULA_TEXT: Record<Exclude<CalcKind, "custom">, string> =
   "linearity-r": "Pearson r of level means vs level reference values",
   "linearity-r2": "r² of level means vs level reference values",
   "max-level-abs-error": "max over levels of |level mean − level reference|",
+  "level-reference-at-max": "x at max(y): level reference value whose response (level mean) is the maximum; ties flagged for review",
 };
+
+/**
+ * Level with the maximum response (level mean). Returns every tied level so a
+ * tie is never resolved silently.
+ */
+export function levelArgMax(levels: ReadonlyArray<{ key: string; reference: number | null; values: ReadonlyArray<number | null> }>) {
+  if (!levels.length) throw new CalcError("No levels configured");
+  const rows = levels.map(l => {
+    if (l.reference === null || l.reference === undefined || !Number.isFinite(l.reference)) throw new CalcError(`Level ${l.key} has no reference value`);
+    return { key: l.key, reference: l.reference, value: stats.mean(l.values) };
+  });
+  const max = Math.max(...rows.map(r => r.value));
+  const tied = rows.filter(r => r.value === max);
+  return { max, reference: tied[0].reference, key: tied[0].key, ties: tied };
+}
 
 export type CalcInputs = {
   values: Array<number | null>;
@@ -456,6 +472,8 @@ export function runCalculation(calc: Pick<Calculation, "kind" | "formula">, inpu
         })
       );
     }
+    case "level-reference-at-max":
+      return levelArgMax(input.levels ?? []).reference;
     case "custom":
       return evaluateFormula(calc.formula, input.variables ?? {});
   }
