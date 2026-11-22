@@ -450,6 +450,7 @@ BEGIN
     'qa-review-in-progress>approved',
     'qa-review-in-progress>rejected',
     'approved>released',
+    'draft>released',
     'released>superseded',
     'released>retired'
   ])) THEN

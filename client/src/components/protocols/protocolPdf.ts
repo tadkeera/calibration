@@ -68,6 +68,11 @@ export function pdfSafe(value: unknown): string {
     .replace(/≠/g, "!=")
     .replace(/×/g, "x")
     .replace(/√/g, "sqrt")
+    .replace(/Σ/g, "sum")
+    .replace(/x\u0304/g, "xbar")
+    .replace(/x̄/g, "xbar")
+    .replace(/ᵢ/g, "i")
+    .replace(/\u0304/g, "")
     .replace(/[^\n\r\t\x20-\x7E\u00A0-\u00FF\u2013\u2014\u2018\u2019\u201C\u201D\u2022\u2026\u2030\u20AC]/g, "?");
 }
 

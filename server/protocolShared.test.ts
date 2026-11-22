@@ -15,7 +15,14 @@ const lookup = (status: "verified" | "pending-verification"): ReferenceLookup =>
 describe("workflow rules", () => {
   it("maps existing roles to duties", () => {
     expect(DEFAULT_DUTIES.viewer).toEqual([]);
-    expect(DEFAULT_DUTIES.user).toEqual(expect.arrayContaining(["author", "technical-reviewer", "executor"]));
+    expect(DEFAULT_DUTIES.user).toEqual(expect.arrayContaining(["technical-reviewer", "executor"]));
+    // v4: Authorized Protocol Editor and Quality Manager are granted duties, never automatic for normal users.
+    expect(DEFAULT_DUTIES.user).not.toContain("author");
+    expect(DEFAULT_DUTIES.user).not.toContain("quality-manager");
+    expect(effectiveDuties("user", ["author"])).toContain("author");
+    expect(effectiveDuties("user", ["quality-manager"])).toEqual(expect.arrayContaining(["quality-manager", "author"]));
+    expect(effectiveDuties("viewer", ["quality-manager"])).toEqual([]);
+    expect(DEFAULT_DUTIES.admin).toContain("quality-manager");
     expect(DEFAULT_DUTIES.user).not.toContain("qa-approver");
     expect(effectiveDuties("user", ["qa-approver"])).toContain("qa-approver");
     expect(effectiveDuties("viewer", ["qa-approver"])).toEqual([]);

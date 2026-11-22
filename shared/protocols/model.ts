@@ -80,6 +80,9 @@ export const ALLOWED_STATUS_CHANGES: ReadonlyArray<[RevisionStatus, RevisionStat
   ["qa-review-in-progress", "approved"],
   ["qa-review-in-progress", "rejected"],
   ["approved", "released"],
+  // Simplified controlled approval: a Quality Manager approves a draft, which
+  // becomes the single active (released) revision in one signed step.
+  ["draft", "released"],
   ["released", "superseded"],
   ["released", "retired"],
 ];
@@ -382,6 +385,28 @@ export const calculationSchema = z.object({
 });
 export type Calculation = z.infer<typeof calculationSchema>;
 
+/**
+ * Graphs a test produces from its actual readings (configured per test in the
+ * protocol; nothing is drawn unless the test definition asks for it and the
+ * required reference + measurement data exist).
+ */
+export const GRAPH_TYPES = [
+  { id: "measured-vs-reference", label: "Measured vs reference (with identity line)", needs: "levels" },
+  { id: "calibration-curve", label: "Calibration curve / linear regression (y = a + b·x, r²)", needs: "levels" },
+  { id: "error", label: "Error per point (measured − reference)", needs: "levels-or-series" },
+  { id: "deviation", label: "Percentage deviation per point (%)", needs: "levels-or-series" },
+  { id: "repeatability", label: "Repeatability (readings with mean and ±SD)", needs: "series" },
+] as const;
+export type GraphType = (typeof GRAPH_TYPES)[number]["id"];
+export const GRAPH_TYPE_IDS = GRAPH_TYPES.map(g => g.id) as [GraphType, ...GraphType[]];
+export const graphSpecSchema = z.object({
+  type: z.enum(GRAPH_TYPE_IDS),
+  title: text(200),
+  xLabel: text(120),
+  yLabel: text(120),
+});
+export type GraphSpec = z.infer<typeof graphSpecSchema>;
+
 export const testSchema = z.object({
   key,
   name: z.string().min(1).max(200),
@@ -411,6 +436,7 @@ export const testSchema = z.object({
   attachmentsRequired: z.boolean().default(false),
   notes: text(2000),
   required: z.boolean().default(true),
+  graphs: z.array(graphSpecSchema).max(10).default([]),
   dependency: z
     .object({
       type: z.enum(["independent", "sequential", "conditional"]).default("independent"),

@@ -30,7 +30,6 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import { CalibrationForm } from "@/components/CalibrationForm";
 import { InstrumentEditor } from "@/components/InstrumentEditor";
 import { QCChart } from "@/components/QCChart";
 import { RecordHistory } from "@/components/RecordHistory";
@@ -40,10 +39,16 @@ import { AccountSecurity } from "@/components/AccountSecurity";
 import { AdminActivityLog } from "@/components/AdminActivityLog";
 import { startLogin } from "@/const";
 
-// Protocol Management is a large, self-contained module: load it only when opened.
-const ProtocolManagement = lazy(() =>
-  import("@/components/protocols/ProtocolManagement").then(m => ({
-    default: m.ProtocolManagement,
+// The Protocol page and the protocol-driven New Validation are large,
+// self-contained modules: load them only when opened.
+const ProtocolPage = lazy(() =>
+  import("@/components/protocols/ProtocolPage").then(m => ({
+    default: m.ProtocolPage,
+  }))
+);
+const ProtocolValidation = lazy(() =>
+  import("@/components/protocols/ProtocolValidation").then(m => ({
+    default: m.ProtocolValidation,
   }))
 );
 const EquipmentDataPage = lazy(() =>
@@ -51,20 +56,16 @@ const EquipmentDataPage = lazy(() =>
     default: m.EquipmentDataPage,
   }))
 );
-/** Exact page title required by the user (shown in both interface languages). */
-const EQUIPMENT_PAGE_TITLE = "تعديل بيانات المعدات والمواصفات";
+/** Exact page title required by the user: English "Equipment Settings" (shown in both interface languages). */
+const EQUIPMENT_PAGE_TITLE = "Equipment Settings";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
-import { downloadOfficialPdf } from "@/lib/officialPdf";
-import { PolarimeterLinearityChart } from "@/components/PolarimeterLinearityChart";
 import {
   applyDeviceProfileOverrides,
-  CalibrationResult,
   Device,
   DeviceKey,
   cloneSettings,
   devices,
-  englishResultLabel,
   findDevice,
 } from "@/lib/qc";
 
@@ -79,7 +80,6 @@ type Page =
   | "protocols"
   | "equipment";
 type Language = "ar" | "en";
-type RetestContext = { originalRecordId: number; reason: string };
 const storageKey = "yemen-qc-settings-v1";
 
 const text = {
@@ -270,260 +270,6 @@ function DeviceEntry({
   );
 }
 
-function ResultPanel({
-  result,
-  device,
-  language,
-  isAuthenticated,
-  userName,
-  onSaved,
-  retestContext,
-}: {
-  result: CalibrationResult;
-  device: Device;
-  language: Language;
-  isAuthenticated: boolean;
-  userName?: string | null;
-  onSaved?: () => void;
-  retestContext?: RetestContext | null;
-}) {
-  const copy = text[language];
-  const isPolarimeter = device.key === "polarimeter";
-  const [pharmacist, setPharmacist] = useState(userName ?? "");
-  const utils = trpc.useUtils();
-  const saveMutation = trpc.records.save.useMutation({
-    onSuccess: () => {
-      utils.records.list.invalidate();
-      if (isPolarimeter) onSaved?.();
-      toast.success(copy.saveSuccess);
-    },
-    onError: error => toast.error(error.message),
-  });
-  const exportMutation = trpc.records.markExported.useMutation();
-  const savedRecord = saveMutation.data;
-  const save = () =>
-    saveMutation.mutate({
-      instrumentKey: device.key,
-      instrumentName: isPolarimeter ? device.english : device.name,
-      instrumentId: device.id,
-      sopNumber: device.sop,
-      formNumber: device.form,
-      resultStatus: result.overall ? "pass" : "fail",
-      pharmacistName: pharmacist.trim(),
-      resultData: result as unknown as Record<string, unknown>,
-      ...(isPolarimeter && retestContext
-        ? {
-            retestOfRecordId: retestContext.originalRecordId,
-            retestReason: retestContext.reason,
-          }
-        : {}),
-    });
-  const pdf = async () => {
-    if (!savedRecord) return;
-    try {
-      const filename = await downloadOfficialPdf({
-        device,
-        result: savedRecord.resultData as unknown as CalibrationResult,
-        pharmacistName: savedRecord.pharmacistName,
-        lifecycleStatus: savedRecord.lifecycleStatus,
-        recordId: savedRecord.id,
-        approvedByUserId: savedRecord.approvedByUserId,
-        approvedAt: savedRecord.approvedAt,
-        validatedByUserId: savedRecord.validatedByUserId,
-        recordCreatedAt: savedRecord.createdAt,
-        retestOfRecordId: savedRecord.retestOfRecordId,
-        retestReason: savedRecord.retestReason,
-        language,
-      });
-      await exportMutation.mutateAsync({ id: savedRecord.id });
-      toast.success(
-        language === "ar" && !isPolarimeter
-          ? `تم تنزيل التقرير الرسمي: ${filename}`
-          : `Report generated from saved record: ${filename}`
-      );
-      utils.records.trail.invalidate({ id: savedRecord.id });
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "The saved-record PDF could not be generated."
-      );
-    }
-  };
-  const screenRows = result.rows.map(row => ({
-    ...row,
-    test: englishResultLabel(row.test),
-    expected: englishResultLabel(row.expected),
-    actual: englishResultLabel(row.actual),
-  }));
-  const screenMetrics = result.metrics.map(metric => ({
-    ...metric,
-    label: englishResultLabel(metric.label),
-  }));
-  const screenChart = result.chart?.map(point => ({
-    ...point,
-    label: englishResultLabel(point.label),
-  }));
-  const resultTitle = isPolarimeter
-    ? result.overall
-      ? "All mandatory tests pass"
-      : "One or more mandatory tests failed"
-    : result.overall
-      ? copy.resultPass
-      : copy.resultFail;
-  return (
-    <section className="result-panel" id="result-panel">
-      <div className="result-banner">
-        <div>
-          <span className="eyebrow">
-            {isPolarimeter ? "TECHNICAL TEST RESULT" : copy.result}
-          </span>
-          <h2>{resultTitle}</h2>
-          <p>
-            {language === "ar" && !isPolarimeter ? device.name : device.english}{" "}
-            · {device.id} · SOP {device.sop}
-          </p>
-        </div>
-        {statusChip(result.overall, result.overall ? "PASS" : "FAIL")}
-      </div>
-      <div className="metrics-row">
-        {screenMetrics.map(metric => (
-          <div
-            className={`metric ${metric.tone ?? "neutral"}`}
-            key={metric.label}
-          >
-            <span>{metric.label}</span>
-            <strong>{metric.value}</strong>
-          </div>
-        ))}
-      </div>
-      <div className="result-layout">
-        <div className="result-table-wrap">
-          <div className="table-heading">
-            <div>
-              <span className="eyebrow">Decision detail</span>
-              <h3>Test record</h3>
-            </div>
-            <span>
-              {result.rows.filter(row => row.pass).length} /{" "}
-              {result.rows.length}
-            </span>
-          </div>
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Test</th>
-                  <th>Acceptance limit</th>
-                  <th>Actual value</th>
-                  <th>State</th>
-                </tr>
-              </thead>
-              <tbody>
-                {screenRows.map((row, index) => (
-                  <tr key={`${row.test}-${index}`}>
-                    <td>{row.test}</td>
-                    <td>
-                      <code>{row.expected}</code>
-                    </td>
-                    <td>
-                      <strong>{row.actual}</strong>
-                    </td>
-                    <td>{statusChip(row.pass)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        {isPolarimeter && result.polarimeterData ? (
-          <PolarimeterLinearityChart data={result.polarimeterData} />
-        ) : (
-          screenChart &&
-          result.chartTitle && (
-            <QCChart
-              data={screenChart}
-              title={englishResultLabel(result.chartTitle)}
-            />
-          )
-        )}
-      </div>
-      {result.note && (
-        <p className="result-note">{englishResultLabel(result.note)}</p>
-      )}
-      <section className="approval-strip">
-        <div>
-          <span className="eyebrow">
-            {isPolarimeter ? "RECORD LIFECYCLE" : copy.approval}
-          </span>
-          <h3>
-            {savedRecord
-              ? `Saved — ${savedRecord.lifecycleStatus.toUpperCase()}`
-              : isPolarimeter
-                ? "Not saved — status will be Draft"
-                : copy.approvalDesc}
-          </h3>
-          <p>
-            {isPolarimeter
-              ? "A passing technical result is not a formal approval. Approval is recorded only by the authorized server workflow."
-              : "Lifecycle status is controlled by the saved validation record."}
-          </p>
-        </div>
-        <label className="field approval-field">
-          <span>
-            {isPolarimeter
-              ? "Analyst / validating pharmacist"
-              : copy.pharmacist}
-          </span>
-          <input
-            value={pharmacist}
-            onChange={event => setPharmacist(event.target.value)}
-            placeholder="Enter authenticated user name"
-          />
-        </label>
-        <div className="approval-actions">
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={pdf}
-            disabled={!savedRecord || exportMutation.isPending}
-          >
-            <FileText size={16} />{" "}
-            {isPolarimeter ? "PDF from saved record" : copy.officialPdf}
-          </button>
-          {isAuthenticated ? (
-            <button
-              type="button"
-              className="primary-button"
-              onClick={save}
-              disabled={
-                Boolean(savedRecord) ||
-                saveMutation.isPending ||
-                !pharmacist.trim()
-              }
-            >
-              <ShieldCheck size={16} />{" "}
-              {savedRecord
-                ? isPolarimeter
-                  ? "Saved as Draft"
-                  : copy.savedDraft
-                : copy.save}
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="primary-button"
-              onClick={startLogin}
-            >
-              <LogIn size={16} /> {copy.loginSave}
-            </button>
-          )}
-        </div>
-      </section>
-    </section>
-  );
-}
-
 function Dashboard({
   language,
   navigate,
@@ -635,130 +381,6 @@ function Dashboard({
           ))}
         </div>
       </section>
-    </div>
-  );
-}
-
-function CalibrationPage({
-  deviceKey,
-  setDeviceKey,
-  settings,
-  result,
-  onComplete,
-  onInvalidate,
-  language,
-  isAuthenticated,
-  userName,
-  draftOwnerId,
-  retestContext,
-  onRetestSaved,
-}: {
-  deviceKey: DeviceKey;
-  setDeviceKey: (key: DeviceKey) => void;
-  settings: Record<DeviceKey, Record<string, any>>;
-  result: CalibrationResult | null;
-  onComplete: (value: CalibrationResult) => void;
-  onInvalidate: () => void;
-  language: Language;
-  isAuthenticated: boolean;
-  userName?: string | null;
-  draftOwnerId?: number | null;
-  retestContext?: RetestContext | null;
-  onRetestSaved?: () => void;
-}) {
-  const [savedDraftNonce, setSavedDraftNonce] = useState(0);
-  const pageLanguage: Language = deviceKey === "polarimeter" ? "en" : language;
-  const copy = text[pageLanguage];
-  const device = findDevice(deviceKey);
-  return (
-    <div
-      className="page-enter"
-      dir={deviceKey === "polarimeter" ? "ltr" : undefined}
-    >
-      <section className="page-topline">
-        <div>
-          <span className="eyebrow">{copy.calibrationEyebrow}</span>
-          <h1>{copy.calibrationTitle}</h1>
-          <p>{copy.calibrationDesc}</p>
-        </div>
-        <div className="page-topline-icon">
-          <ClipboardCheck size={26} />
-        </div>
-      </section>
-      <section className="device-dossier">
-        <div className="dossier-title">
-          <span className="small-symbol" style={{ background: device.accent }}>
-            <FlaskConical size={18} />
-          </span>
-          <div>
-            <span className="eyebrow">{copy.selected}</span>
-            <h2>{pageLanguage === "ar" ? device.name : device.english}</h2>
-          </div>
-        </div>
-        <DeviceSelector
-          selected={deviceKey}
-          onChange={setDeviceKey}
-          language={pageLanguage}
-        />
-        <dl className="metadata">
-          <div>
-            <dt>{copy.metadata[0]}</dt>
-            <dd>{device.id}</dd>
-          </div>
-          <div>
-            <dt>{copy.metadata[1]}</dt>
-            <dd>{device.sop}</dd>
-          </div>
-          <div>
-            <dt>{copy.metadata[2]}</dt>
-            <dd>{device.manufacturer}</dd>
-          </div>
-          <div>
-            <dt>{copy.metadata[3]}</dt>
-            <dd>
-              {device.model} · {device.serial}
-            </dd>
-          </div>
-        </dl>
-      </section>
-      {deviceKey === "polarimeter" && retestContext && (
-        <div className="polarimeter-alert warning" role="status">
-          Retest of saved failed record {retestContext.originalRecordId}. The
-          original measurements remain unchanged. Reason: {retestContext.reason}
-        </div>
-      )}
-      <section className="form-panel">
-        <CalibrationForm
-          key={`${deviceKey}-${draftOwnerId ?? "anonymous"}-${retestContext ? retestContext.originalRecordId : "active"}`}
-          device={device}
-          config={settings[deviceKey]}
-          onComplete={onComplete}
-          onInvalidate={onInvalidate}
-          readOnly={!isAuthenticated}
-          draftOwnerId={draftOwnerId}
-          savedDraftNonce={savedDraftNonce}
-          draftKey={
-            retestContext
-              ? `retest-${retestContext.originalRecordId}`
-              : "active"
-          }
-          onRetestDraftCleared={retestContext ? onRetestSaved : undefined}
-        />
-      </section>
-      {result?.deviceKey === deviceKey && (
-        <ResultPanel
-          key={result.createdAt}
-          result={result}
-          device={device}
-          language={pageLanguage}
-          isAuthenticated={isAuthenticated}
-          userName={userName}
-          onSaved={() => {
-            setSavedDraftNonce(current => current + 1);
-          }}
-          retestContext={retestContext}
-        />
-      )}
     </div>
   );
 }
@@ -1535,18 +1157,6 @@ export default function Home() {
   const { user, loading, isAuthenticated, logout } = useAuth();
   const [activePage, setActivePage] = useState<Page>("dashboard");
   const [deviceKey, setDeviceKey] = useState<DeviceKey>("disintegration");
-  const [result, setResult] = useState<CalibrationResult | null>(null);
-  const [retestContext, setRetestContext] = useState<RetestContext | null>(
-    null
-  );
-  const previousSessionUserId = useRef<number | null>(null);
-  useEffect(() => {
-    const currentUserId = user?.id ?? null;
-    if (previousSessionUserId.current === currentUserId) return;
-    previousSessionUserId.current = currentUserId;
-    setResult(null);
-    setRetestContext(null);
-  }, [user?.id]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [language, setLanguage] = useState<Language>(() =>
     localStorage.getItem("yemen-qc-language") === "en" ? "en" : "ar"
@@ -1657,7 +1267,6 @@ export default function Home() {
       };
     }
     setSettings({ ...settings, [deviceKey]: updatedDevice });
-    if (deviceKey === "polarimeter") setResult(null);
     if (user?.role === "admin")
       saveSettingsMutation.mutate({ deviceKey, settings: updatedDevice });
   };
@@ -1687,7 +1296,6 @@ export default function Home() {
       Object.entries(defaults).forEach(([key, value]) =>
         saveSettingsMutation.mutate({ deviceKey: key, settings: value })
       );
-    setResult(null);
   };
   const navItems: { id: Page; icon: typeof LayoutDashboard; label: string }[] =
     [
@@ -1698,8 +1306,7 @@ export default function Home() {
       {
         id: "protocols",
         icon: FileStack,
-        label:
-          interfaceLanguage === "ar" ? "إدارة البروتوكولات" : "Protocol Management",
+        label: interfaceLanguage === "ar" ? "البروتوكول" : "Protocol",
       },
       { id: "equipment", icon: Wrench, label: EQUIPMENT_PAGE_TITLE },
       {
@@ -1729,8 +1336,8 @@ export default function Home() {
   const pageLabel =
     activePage === "protocols"
       ? interfaceLanguage === "ar"
-        ? "إدارة البروتوكولات"
-        : "Protocol Management"
+        ? "البروتوكول"
+        : "Protocol"
       : activePage === "equipment"
       ? EQUIPMENT_PAGE_TITLE
       : activePage === "users"
@@ -1889,30 +1496,20 @@ export default function Home() {
               chooseDevice={chooseDevice}
             />
           )}
-          {activePage === "calibration" && (
-            <CalibrationPage
-              deviceKey={deviceKey}
-              setDeviceKey={setDeviceKey}
-              settings={settings}
-              result={result}
-              language={interfaceLanguage}
-              isAuthenticated={isAuthenticated && user?.role !== "viewer"}
-              userName={user?.name}
-              draftOwnerId={user?.id ?? null}
-              retestContext={retestContext}
-              onRetestSaved={() => setRetestContext(null)}
-              onInvalidate={() => setResult(null)}
-              onComplete={next => {
-                setResult(next);
-                setTimeout(
-                  () =>
-                    document
-                      .getElementById("result-panel")
-                      ?.scrollIntoView({ behavior: "smooth", block: "start" }),
-                  80
-                );
-              }}
-            />
+          {activePage === "calibration" && user && (
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> New Validation…
+                </div>
+              }
+            >
+              <ProtocolValidation
+                user={{ id: user.id, name: user.name ?? null, role: user.role }}
+                language={interfaceLanguage}
+                initialInstrumentKey={deviceKey}
+              />
+            </Suspense>
           )}
           {activePage === "settings" && (
             <SettingsPage
@@ -1932,24 +1529,19 @@ export default function Home() {
               isAuthenticated={isAuthenticated}
               isAdmin={user?.role === "admin"}
               currentUserId={user?.id ?? 0}
-              onStartRetest={(originalRecordId, reason) => {
-                setRetestContext({ originalRecordId, reason });
-                setDeviceKey("polarimeter");
-                setResult(null);
-                navigate("calibration");
-              }}
             />
           )}
           {activePage === "protocols" && user && (
             <Suspense
               fallback={
                 <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Loading Protocol Management…
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading Protocol…
                 </div>
               }
             >
-              <ProtocolManagement
+              <ProtocolPage
                 user={{ id: user.id, name: user.name ?? null, role: user.role }}
+                language={interfaceLanguage}
               />
             </Suspense>
           )}

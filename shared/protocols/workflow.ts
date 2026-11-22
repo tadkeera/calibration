@@ -5,11 +5,18 @@
  * are mapped onto them; administrators may additionally grant protocol duties
  * to "user" accounts (e.g. QA approver). Viewers are always read-only.
  * These rules run on the backend; the UI only mirrors them.
+ *
+ * Simplified controlled workflow (2026-11): Draft → Approved (active) by a
+ * Quality Manager in one signed step ("approve"). The earlier multi-stage
+ * actions are retained only for historical revisions / backwards
+ * compatibility and are not offered in the UI; every path that makes a
+ * revision approved or active requires the quality-manager duty.
  */
 import type { RevisionStatus } from "./model";
 
 export const PROTOCOL_DUTIES = [
-  { id: "author", label: "Protocol Author", description: "Create and edit draft protocols; submit for review" },
+  { id: "author", label: "Authorized Protocol Editor", description: "Create revisions, edit draft revisions, tests, acceptance criteria, formulas and references" },
+  { id: "quality-manager", label: "Quality Manager", description: "Approve draft revisions (the approved revision becomes the active protocol); includes editor permissions" },
   { id: "technical-reviewer", label: "Technical Specialist", description: "Technical review, gap decisions, request corrections" },
   { id: "qa-approver", label: "QA Reviewer / Approver", description: "Final QA review, approve, reject or return" },
   { id: "releaser", label: "Document Controller (Release)", description: "Controlled release and retirement of approved protocols" },
@@ -23,17 +30,21 @@ export type BaseRole = "admin" | "user" | "viewer";
 
 /** Default duty mapping onto the existing application roles. */
 export const DEFAULT_DUTIES: Record<BaseRole, readonly ProtocolDuty[]> = {
-  admin: ["author", "technical-reviewer", "qa-approver", "releaser", "executor", "settings-admin"],
-  user: ["author", "technical-reviewer", "executor"],
+  admin: ["author", "quality-manager", "technical-reviewer", "qa-approver", "releaser", "executor", "settings-admin"],
+  // Normal users: view approved protocols, execute validations (enter readings,
+  // calculate, save, print). Protocol editing / approval must be granted.
+  user: ["technical-reviewer", "executor"],
   viewer: [],
 };
 /** Duties that may be granted explicitly to a "user" account. */
-export const GRANTABLE_DUTIES: readonly ProtocolDuty[] = ["qa-approver", "releaser"];
+export const GRANTABLE_DUTIES: readonly ProtocolDuty[] = ["author", "quality-manager", "qa-approver", "releaser"];
 
 export function effectiveDuties(role: BaseRole, granted: readonly string[] = []): ProtocolDuty[] {
   if (role === "viewer") return [];
   const set = new Set<ProtocolDuty>(DEFAULT_DUTIES[role] ?? []);
   if (role === "user") granted.forEach(d => (GRANTABLE_DUTIES as readonly string[]).includes(d) && set.add(d as ProtocolDuty));
+  // A Quality Manager may perform the authorized protocol management actions.
+  if (set.has("quality-manager")) set.add("author");
   return PROTOCOL_DUTY_IDS.filter(d => set.has(d));
 }
 
@@ -49,6 +60,7 @@ export const WORKFLOW_ACTIONS = [
   "qa-reject",
   "release",
   "retire",
+  "approve",
 ] as const;
 export type WorkflowAction = (typeof WORKFLOW_ACTIONS)[number];
 
@@ -72,9 +84,10 @@ export const TRANSITIONS: Record<WorkflowAction, TransitionRule> = {
   "submit-qa-review": { action: "submit-qa-review", label: "Submit to QA", from: ["technically-reviewed"], to: "qa-review-pending", duty: "author", commentRequired: false, signatureMeaning: null, notify: "qa-approver" },
   "start-qa-review": { action: "start-qa-review", label: "Start QA review", from: ["qa-review-pending"], to: "qa-review-in-progress", duty: "qa-approver", commentRequired: false, signatureMeaning: null, notify: "author" },
   "request-qa-changes": { action: "request-qa-changes", label: "Return for QA corrections", from: ["qa-review-in-progress"], to: "qa-changes-required", duty: "qa-approver", commentRequired: true, signatureMeaning: "QA review — changes required", notify: "author" },
-  "qa-approve": { action: "qa-approve", label: "QA approve", from: ["qa-review-in-progress"], to: "approved", duty: "qa-approver", commentRequired: true, signatureMeaning: "Approved by Quality Assurance", notify: "releaser" },
+  "qa-approve": { action: "qa-approve", label: "QA approve", from: ["qa-review-in-progress"], to: "approved", duty: "quality-manager", commentRequired: true, signatureMeaning: "Approved by Quality Assurance", notify: "releaser" },
   "qa-reject": { action: "qa-reject", label: "QA reject", from: ["qa-review-in-progress"], to: "rejected", duty: "qa-approver", commentRequired: true, signatureMeaning: "Rejected by Quality Assurance", notify: "author" },
-  release: { action: "release", label: "Controlled release", from: ["approved"], to: "released", duty: "releaser", commentRequired: false, signatureMeaning: "Released for use (document control)", notify: "executor" },
+  release: { action: "release", label: "Controlled release", from: ["approved"], to: "released", duty: "quality-manager", commentRequired: false, signatureMeaning: "Released for use (document control)", notify: "executor" },
+  approve: { action: "approve", label: "Approve (Quality Manager)", from: ["draft"], to: "released", duty: "quality-manager", commentRequired: false, signatureMeaning: "Approved by Quality Manager — active protocol revision", notify: "executor" },
   retire: { action: "retire", label: "Retire protocol", from: ["released"], to: "retired", duty: "releaser", commentRequired: true, signatureMeaning: "Retired (document control)", notify: "author" },
 };
 
