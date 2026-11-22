@@ -83,7 +83,8 @@ describe("8 protocols → calibration runs → PDF reports", () => {
       expect(d.steps.flatMap(s => s.testKeys).sort()).toEqual(d.content.sections.flatMap(s => s.tests.map(t => t.key)).sort());
       // loading/executing never implies PASS; pending criteria block approval
       expect(d.evaluation.overall).not.toBe("PASS");
-      expect(d.blockers.some(b => b.code === "pending-verification" && b.blocksApproval)).toBe(true);
+      // HPLC: flow / GPV criteria resolved by user decision (review notes A, C) — nothing pending; still Draft (never recordable).
+      expect(d.blockers.some(b => b.code === "pending-verification" && b.blocksApproval)).toBe(p.number !== "CAL-QC-HPLC-001");
       expect(d.blockers.some(b => b.code === "revision-not-released" && b.blocksRecording)).toBe(true);
 
       const { doc, documentId, status } = buildRunPdf({
@@ -104,7 +105,7 @@ describe("8 protocols → calibration runs → PDF reports", () => {
       expect(text).toContain("NOT APPROVED");
       expect(text).toContain(`Page ${pages} of ${pages}`);
       expect(text).toContain(documentId);
-      expect(text).toContain("PENDING TECHNICAL VERIFICATION");
+      if (p.number !== "CAL-QC-HPLC-001") expect(text).toContain("PENDING TECHNICAL VERIFICATION");
       expect(text).toContain("Not signed in the system");
       if (!Object.keys((d.run.equipmentSnapshot as EquipmentSnapshot).specs).length) expect(text).toMatch(/Not available in/); // wraps inside table cells
       const file = `${p.number}.pdf`;

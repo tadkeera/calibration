@@ -9,6 +9,7 @@ import {
   allCriteria,
   allTests,
   collectReferenceIds,
+  type Criterion,
   type ProtocolContent,
   type ReferenceVerificationStatus,
 } from "./model";
@@ -114,13 +115,7 @@ export function submissionIssues(content: ProtocolContent, references: Reference
       if (JUSTIFICATION_REQUIRED_CLASSES.includes(c.sourceClass) && !c.justification.trim())
         err(cp, `Criterion ${c.key}: institutional / risk-based criteria require a written justification`);
       const numeric = !["pass-fail", "record-only"].includes(c.comparison);
-      const hasLimit =
-        c.comparison === "between" ? c.lower !== null && c.upper !== null
-        : c.comparison === "<=" || c.comparison === "<" ? c.upper !== null
-        : c.comparison === ">=" || c.comparison === ">" ? c.lower !== null
-        : c.comparison === "abs<=" ? (c.tolerance ?? c.upper) !== null
-        : c.comparison === "target±tolerance" ? c.target !== null && c.tolerance !== null
-        : true;
+      const hasLimit = criterionHasLimit(c);
       if (numeric && !hasLimit && c.verificationStatus === "verified") err(cp, `Criterion ${c.key}: a verified criterion must have its numeric limit configured`);
       if (numeric && !hasLimit && c.verificationStatus !== "verified") warn(cp, `Criterion ${c.key}: limit not established — ${PENDING_LABEL}`);
       if (c.verificationStatus === "verified" && !c.verificationEvidence.trim()) err(cp, `Criterion ${c.key}: verification evidence must be documented`);
@@ -183,6 +178,16 @@ export function approvalBlockers(content: ProtocolContent, ctx: ApprovalContext)
  * every documented technical gap assessed. "Needs Source Verification" values
  * can therefore never be approved silently.
  */
+/** A numeric criterion has its limit configured (pass-fail / record-only always true). */
+export function criterionHasLimit(c: Pick<Criterion, "comparison" | "lower" | "upper" | "tolerance" | "target">): boolean {
+  return c.comparison === "between" ? c.lower !== null && c.upper !== null
+    : c.comparison === "<=" || c.comparison === "<" ? c.upper !== null
+    : c.comparison === ">=" || c.comparison === ">" ? c.lower !== null
+    : c.comparison === "abs<=" ? (c.tolerance ?? c.upper) !== null
+    : c.comparison === "target±tolerance" ? c.target !== null && c.tolerance !== null
+    : true;
+}
+
 export function qmApprovalBlockers(content: ProtocolContent, ctx: { references: ReferenceLookup; today: string }): string[] {
   const blockers: string[] = [];
   const errors = submissionIssues(content, ctx.references).filter(i => i.severity === "error");

@@ -23,7 +23,8 @@ import * as svc from "../../server/protocols/service";
 import * as wf from "../../server/protocols/workflowService";
 import * as val from "../../server/protocols/validationService";
 import * as seedHplc from "../../server/protocols/hplcSeed";
-import { HPLC_PROTOCOL_NUMBER, HPLC_TEST_KEYS } from "../../shared/protocols/hplcLc2030";
+import { HPLC_PREVIOUS_SEED_VERSIONS, HPLC_PROTOCOL_NUMBER, HPLC_SEED_VERSION, HPLC_TEST_KEYS } from "../../shared/protocols/hplcLc2030";
+import type { ProtocolContent } from "../../shared/protocols/model";
 import { toRpcPayload } from "../../server/protocols/supabaseStore";
 import { PROTOCOL_TABLES, PROTOCOL_WORKFLOW_TABLE_NAMES, ProtocolConflictError, assertColumns, type ProtocolStore, type ProtocolTable, type Row, type SelectOptions } from "../../server/protocols/tables";
 
@@ -394,6 +395,28 @@ try {
   ok("PG HPLC: exactly the 10 source tests with stable keys", JSON.stringify(htests) === JSON.stringify(HPLC_TEST_KEYS), JSON.stringify(htests));
   ok("PG HPLC: one HPLC.pdf reference (pending verification), no duplicates", (await q(`select verification_status from protocol_references where code = 'HPLC-CAL-RECORD-LC2030'`)).rows.map(r => r.verification_status).join() === "pending-verification");
   ok("PG HPLC: not approved automatically (no active protocol for New Validation)", (await val.activeProtocolForEquipment("hplc")).available === false);
+  const hContent = hr[0]?.content as ProtocolContent | undefined;
+  const hCrit = hContent?.sections.flatMap(x => x.tests).flatMap(t => t.criteria) ?? [];
+  ok("PG HPLC: flow (p.1 setpoints) and GPV (± 2.0 % relative) criteria verified — nothing pending", hCrit.length > 0 && hCrit.every(c => c.verificationStatus === "verified") && hCrit.find(c => c.key === "gpv_limit")?.parameter === "rel_dev");
+  const hSpecs = (await q(`select field, reference from protocol_equipment_changes where instrument_key = 'hplc'`)).rows;
+  ok("PG HPLC: equipment specifications from HPLC.pdf recorded (empty fields only, audited with source)", hSpecs.length >= 8 && hSpecs.every(r => r.reference === "HPLC.pdf (RLS/QC/HPLC/02)") && !hSpecs.some(r => ["lampHours", "lastCalibration", "nextCalibration"].includes(r.field)), JSON.stringify(hSpecs.map(r => r.field)));
+  // Upgrade of a draft left by seed v1 (flow / GPV pending) → current content, same revision, audited.
+  const hRevId = (await q(`select id from protocol_revisions where protocol_id = $1`, [hp[0].id])).rows[0].id as string;
+  const hV1 = structuredClone(hContent!);
+  hV1.identification.description = hV1.identification.description.replace(HPLC_SEED_VERSION, HPLC_PREVIOUS_SEED_VERSIONS[0]);
+  hV1.sections.flatMap(x => x.tests).flatMap(t => t.criteria).filter(c => c.key === "flow_limit" || c.key === "gpv_limit").forEach(c => Object.assign(c, { verificationStatus: "pending-technical-verification", verificationEvidence: "" }));
+  await q(`update protocol_revisions set content = $1::jsonb, row_version = row_version + 1 where id = $2`, [JSON.stringify(hV1), hRevId]);
+  await q(`update protocols set description = $1 where id = $2`, [hV1.identification.description, hp[0].id]);
+  await val.protocolBoard(users.author);
+  const hUp = (await q(`select revision_number, status, content from protocol_revisions where protocol_id = $1`, [hp[0].id])).rows;
+  const hUpAudit = (await q(`select count(*)::int n from protocol_audit_events where revision_id = $1 and action = 'revision.content-updated' and reason = $2`, [hRevId, seedHplc.HPLC_UPGRADE_REASON])).rows[0].n;
+  ok("PG HPLC: v1 draft upgraded in place to the current seed (audited, still Draft, no extra revision)", hUp.length === 1 && hUp[0].status === "draft" && String(hUp[0].content.identification.description).includes(HPLC_SEED_VERSION) && hUpAudit === 1, JSON.stringify({ n: hUp.length, audit: hUpAudit }));
+  // "Verified" step (Quality Manager, signed): reference verified → no approval blockers; never approves.
+  await rejects("PG HPLC: Verified step requires the Quality Manager duty", () => svc.verifyForApproval(users.author, { revisionId: hRevId, expectedRowVersion: 1, statement: "checked against HPLC.pdf", password: SIGN }), /quality-manager/);
+  const hRv = (await q(`select row_version from protocol_revisions where id = $1`, [hRevId])).rows[0].row_version as number;
+  const hVer = await svc.verifyForApproval(users.qa, { revisionId: hRevId, expectedRowVersion: hRv, statement: "Reference and limits checked against HPLC.pdf p.1-9 (PG verify)", password: SIGN });
+  const hRef = (await q(`select verification_status, verified_by_name from protocol_references where code = 'HPLC-CAL-RECORD-LC2030'`)).rows[0];
+  ok("PG HPLC: Verified step verifies the pending reference, clears the blockers and leaves the revision a Draft", hVer.verifiedReferences.join() === "HPLC-CAL-RECORD-LC2030" && hVer.remainingBlockers.length === 0 && hRef.verification_status === "verified" && hRef.verified_by_name === "qa" && (await svc.getRevision(users.qa, hRevId)).revision.status === "draft" && (await val.activeProtocolForEquipment("hplc")).available === false, JSON.stringify({ hVer, hRef }));
 
   // v3 rollback: drops only the 4 v3 tables (+ guards); v2 data survive; re-applying the migration restores v3.
   const coreBefore = (await q(`select count(*)::int n from protocols`)).rows[0].n;

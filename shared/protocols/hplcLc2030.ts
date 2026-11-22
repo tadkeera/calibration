@@ -26,7 +26,14 @@ export const HPLC_SOURCE_DOCUMENT = "HPLC.pdf";
 export const HPLC_SOURCE_TYPE = "Laboratory Calibration Reference";
 export const HPLC_INITIAL_STATUS = "Draft – Pending Quality Manager Approval";
 /** Marker stored in the identification description (identifies seeded content; bump when the seeded content changes). */
-export const HPLC_SEED_VERSION = "HPLC.pdf seed v1";
+export const HPLC_SEED_VERSION = "HPLC.pdf seed v2";
+/** Earlier seed markers: a draft that still carries one of them is updated to the current content (audited). */
+export const HPLC_PREVIOUS_SEED_VERSIONS = ["HPLC.pdf seed v1"];
+/** User decisions applied in seed v2 (recorded during the protocol-update request on branch arena/7d2d31ac-calibration). */
+export const HPLC_USER_DECISIONS = {
+  flow: "Flow-rate setpoints 1.0 / 1.5 / 2.0 mL/min (HPLC.pdf p.1) confirmed by user instruction.",
+  gpv: "GPV tolerance \"Setting value ± 2.0\" applied as ± 2.0 % RELATIVE to the setting value (|actual − setting| / setting × 100 ≤ 2.0) by user decision. The supplied USP <621> Chromatography and USP <1058> Analytical Instrument Qualification extracts specify NO acceptance limit for gradient proportioning accuracy (NOT SPECIFIED IN SUPPLIED USP SOURCE); the limit therefore remains the HPLC.pdf laboratory value.",
+};
 export const HPLC_REF_PLACEHOLDER = "@HPLCPDF";
 
 /** Stable test keys (idempotent seeding: the same keys are updated, never duplicated). */
@@ -80,7 +87,7 @@ export type HplcEquipment = { instrumentKey: string; instrumentId: string; seria
 const R = HPLC_REF_PLACEHOLDER;
 const SRC = "laboratory-calibration-reference" as const;
 
-type CritOpts = { lower?: number; upper?: number; tolerance?: number; target?: number; unit?: string; levelKey?: string; clause: string; quote: string; pending?: string; conflict?: string };
+type CritOpts = { lower?: number; upper?: number; tolerance?: number; target?: number; unit?: string; levelKey?: string; clause: string; quote: string; pending?: string; conflict?: string; evidence?: string };
 function crit(key: string, parameter: string, requirement: string, comparison: "abs<=" | ">=" | "<=" | "between", o: CritOpts) {
   return {
     key,
@@ -100,6 +107,8 @@ function crit(key: string, parameter: string, requirement: string, comparison: "
     verificationStatus: o.pending ? ("pending-technical-verification" as const) : ("verified" as const),
     verificationEvidence: o.pending
       ? ""
+      : o.evidence
+      ? `Transcribed from ${HPLC_SOURCE_DOCUMENT} ${o.clause}: "${o.quote}". ${o.evidence}`
       : `Transcribed from ${HPLC_SOURCE_DOCUMENT} ${o.clause}: "${o.quote}". Cross-checked against the scanned page and the supplied extraction (HPLC_Complete_Analysis_English.txt). Source type: ${HPLC_SOURCE_TYPE}.`,
     conflictNote: [o.pending ? `PENDING QUALITY REVIEW: ${o.pending}` : "", o.conflict ?? ""].filter(Boolean).join(" "),
   };
@@ -124,7 +133,7 @@ function tests(): NonNullable<NonNullable<ProtocolContentInput["sections"]>[numb
       stage: "Calibration",
       method: "Volumetric: time to fill a 10.0 mL class A volumetric flask at each set flow rate.",
       procedure:
-        "At each set flow rate measure the time (minutes) taken to fill a 10.0 mL class A volumetric flask. Actual flow = collected volume / time taken; deviation = actual − set; deviation % = (actual − set) / set × 100; absolute error % = |deviation %|. Setpoints 1.0 / 1.5 / 2.0 mL/min adopted from HPLC.pdf p.1 per user instruction — p.2 prints 0.5 / 1.5 / 2.5 mL/min (see review note A, Pending Quality Review).",
+        "At each set flow rate measure the time (minutes) taken to fill a 10.0 mL class A volumetric flask. Actual flow = collected volume / time taken; deviation = actual − set; deviation % = (actual − set) / set × 100; absolute error % = |deviation %|. Setpoints 1.0 / 1.5 / 2.0 mL/min (HPLC.pdf p.1, confirmed by user instruction) — p.2 prints 0.5 / 1.5 / 2.5 mL/min (review note A, resolved).",
       referenceIds: [R],
       referenceClause: "HPLC.pdf p.2 (procedure, formula, criterion); p.1 summary (adopted setpoints)",
       requiredMaterials: "10.0 mL class A volumetric flask; calibrated stopwatch.",
@@ -135,9 +144,9 @@ function tests(): NonNullable<NonNullable<ProtocolContentInput["sections"]>[numb
       readingsRequired: 1,
       readingKeys: [{ key: "time", label: "Time taken (min)", unit: "min", gt: 0 }],
       levels: [
-        level("F1", "1.0 mL/min", 1.0, "mL/min", "HPLC.pdf p.1 (adopted); p.2 prints 0.5 mL/min — Pending Quality Review"),
+        level("F1", "1.0 mL/min", 1.0, "mL/min", "HPLC.pdf p.1 (confirmed setpoint)"),
         level("F2", "1.5 mL/min", 1.5, "mL/min", "HPLC.pdf p.1 and p.2"),
-        level("F3", "2.0 mL/min", 2.0, "mL/min", "HPLC.pdf p.1 (adopted); p.2 prints 2.5 mL/min — Pending Quality Review"),
+        level("F3", "2.0 mL/min", 2.0, "mL/min", "HPLC.pdf p.1 (confirmed setpoint)"),
       ],
       fields: [numField("volume", "Collected volume (class A volumetric flask)", "mL", { defaultValue: 10.0, gt: 0 })],
       calculations: [
@@ -152,7 +161,8 @@ function tests(): NonNullable<NonNullable<ProtocolContentInput["sections"]>[numb
           unit: "%",
           clause: "p.2 (also p.1 summary)",
           quote: "Acceptance criteria: should be within ± 1.0% of the set value",
-          pending: "the ± 1.0 % limit is stated clearly, but the setpoints differ between p.1 (1.0 / 1.5 / 2.0) and p.2 (0.5 / 1.5 / 2.5 mL/min). p.1 values adopted per user instruction; the Quality Manager must confirm the setpoints (review note A) and then mark this criterion verified.",
+          evidence: HPLC_USER_DECISIONS.flow,
+          conflict: "Review note A (resolved): p.2 prints 0.5 / 1.5 / 2.5 mL/min; the p.1 setpoints 1.0 / 1.5 / 2.0 mL/min apply.",
         }),
       ],
       graphs: [
@@ -409,7 +419,7 @@ function tests(): NonNullable<NonNullable<ProtocolContentInput["sections"]>[numb
       objective: "Assess the proportioning performance of the gradient valve for pump combinations A&B, A&C, A&D at 10 / 50 / 90 %.",
       category: "Pump",
       stage: "Calibration",
-      procedure: "For each combination and setting record the signal height at 0 %, at the setting and at 100 %. Actual concentration % = (H setting − H 0 %) / (H 100 % − H 0 %) × 100; deviation = actual − setting (percentage points); |deviation|. H 100 % must differ from H 0 %.",
+      procedure: "For each combination and setting record the signal height at 0 %, at the setting and at 100 %. Actual concentration % = (H setting − H 0 %) / (H 100 % − H 0 %) × 100; deviation = actual − setting (percentage points); relative deviation % = (actual − setting) / setting × 100. Acceptance: |relative deviation| ≤ 2.0 % of the setting value. H 100 % must differ from H 0 %.",
       referenceIds: [R],
       referenceClause: "HPLC.pdf p.7–9 (also p.1 summary item 10)",
       conditions: "Wavelength 254 nm (handwritten — verify); flow rate 1.0 mL/min; pump A: water (100 %); pumps B, C, D: acetone (handwritten concentration appears as 0.3 % — verify). (HPLC.pdf p.7)",
@@ -428,14 +438,16 @@ function tests(): NonNullable<NonNullable<ProtocolContentInput["sections"]>[numb
         custom("actual", "Actual concentration %", "(hset - h0) / (h100 - h0) * 100", "%", "per-level", "HPLC.pdf p.7–8"),
         custom("dev", "Deviation (actual − setting)", "actual - reference", "percentage points", "per-level"),
         custom("abs_dev", "|Deviation|", "abs(dev)", "percentage points", "per-level"),
+        custom("rel_dev", "Relative deviation % of setting", "(actual - reference) / reference * 100", "%", "per-level", "± 2.0 % relative to the setting value (user decision, review note C)"),
       ],
       criteria: [
-        crit("gpv_limit", "dev", "Actual concentration within the setting value ± 2.0 (interpreted as ± 2.0 percentage points).", "abs<=", {
+        crit("gpv_limit", "rel_dev", "Actual concentration within the setting value ± 2.0 % (relative): |actual − setting| / setting × 100 ≤ 2.0 (e.g. 9.8–10.2 % at a 10 % setting).", "abs<=", {
           tolerance: 2.0,
-          unit: "percentage points",
+          unit: "%",
           clause: "p.1 summary (\"Setting value ± 2.0\"); p.7–9",
           quote: "Setting value ± 2.0",
-          pending: "the source does not state whether ± 2.0 means percentage points or relative percent. Interpreted initially as ± 2.0 percentage points (review note C); the Quality Manager must confirm the interpretation and then mark this criterion verified.",
+          evidence: HPLC_USER_DECISIONS.gpv,
+          conflict: "Review note C (resolved): relative interpretation applied by user decision; USP <621> / <1058> extracts specify no GPV limit.",
         }),
       ],
       graphs: [{ type: "level-xy", title: "Gradient proportioning valve — setting vs actual concentration", xLabel: "Setting (%)", yLabel: "Actual concentration (%)", y: "actual", line: "identity" }],
@@ -449,12 +461,12 @@ function gaps(): NonNullable<ProtocolContentInput["gaps"]> {
   return [
     {
       key: "noteA_flow_setpoints",
-      title: "A — Flow-rate setpoints differ between p.1 and p.2 (Pending Quality Review)",
+      title: "A — Flow-rate setpoints differ between p.1 and p.2 (resolved: p.1 values)",
       description: "HPLC.pdf p.1 summary lists 1.0 / 1.5 / 2.0 mL/min; the p.2 detailed procedure prints 0.5 / 1.5 / 2.5 mL/min (with handwritten calculations 10.0/10.0 = 1.0, 10.0/6.6 = 1.52, 10.0/5 = 2.0 and margin corrections). The execution prompt proposed p.2; the user's later instruction (HPLC.txt authoritative) adopts p.1.",
       testKey: "hplc_flow_rate",
       unit: "mL/min",
       specifications: [spec("p.1 summary (adopted)", "1.0 / 1.5 / 2.0 mL/min", "HPLC.pdf p.1"), spec("p.2 detailed procedure (retained)", "0.5 / 1.5 / 2.5 mL/min", "HPLC.pdf p.2")],
-      assessment: "Adopted: p.1 values 1.0 / 1.5 / 2.0 mL/min per user instruction; the p.2 values are retained here unchanged. STATUS: PENDING QUALITY REVIEW — the Quality Manager confirms the setpoints (criterion flow_limit stays pending verification until then).",
+      assessment: `RESOLVED — ${HPLC_USER_DECISIONS.flow} The p.2 values are retained here unchanged for traceability.`,
       claimRestriction: "",
     },
     {
@@ -469,12 +481,17 @@ function gaps(): NonNullable<ProtocolContentInput["gaps"]> {
     },
     {
       key: "noteC_gpv_interpretation",
-      title: "C — Gradient proportioning valve tolerance interpretation",
+      title: "C — Gradient proportioning valve tolerance interpretation (resolved: ± 2.0 % relative)",
       description: "The source states \"Setting value ± 2.0\" without defining percentage points vs relative percent. The formula yields a difference in percentage points.",
       testKey: "hplc_gpv",
       unit: "percentage points",
-      specifications: [spec("Source wording", "Setting value ± 2.0", "HPLC.pdf p.1"), spec("Initial interpretation", "|actual − setting| ≤ 2.0 percentage points", "HPLC.pdf p.1, p.7–9", 2.0)],
-      assessment: "Interpreted initially as ± 2.0 percentage points. STATUS: PENDING QUALITY REVIEW — criterion gpv_limit stays pending verification until the Quality Manager confirms the interpretation.",
+      specifications: [
+        spec("Source wording", "Setting value ± 2.0", "HPLC.pdf p.1"),
+        spec("Earlier interpretation (superseded)", "|actual − setting| ≤ 2.0 percentage points", "HPLC.pdf p.1, p.7–9", 2.0),
+        spec("Adopted (user decision)", "|actual − setting| / setting × 100 ≤ 2.0 %", "HPLC.pdf p.1, p.7–9", 2.0),
+        { label: "USP <621> / <1058> (supplied extracts)", value: null, displayValue: "NOT SPECIFIED IN SUPPLIED USP SOURCE", sourceClass: "pharmacopoeial" as const, referenceId: null, clause: "USP <621> Chromatography; USP <1058> AIQ" },
+      ],
+      assessment: `RESOLVED — ${HPLC_USER_DECISIONS.gpv}`,
       claimRestriction: "",
     },
     {
@@ -519,6 +536,24 @@ function gaps(): NonNullable<ProtocolContentInput["gaps"]> {
     },
   ];
 }
+
+const SRC_NOTE = "source instrument Shimadzu LC 2030 PLUS, ID RLS/QC/HPLC/02 — verify for this equipment";
+/**
+ * Specification values documented in HPLC.pdf, recorded on the Equipment Master
+ * HPLC record (empty fields only). Not used: historical results, lamp hours
+ * (763 h, 2022 "as found"), calibration dates 20/08/2022 / 20/02/2023, location
+ * of the source laboratory. Software name / version are not in the source.
+ */
+export const HPLC_EQUIPMENT_SPEC_SEED: Record<string, { value: string | number; unit: string; source: string }> = {
+  pumpConfiguration: { value: "Four solvent channels (pumps A, B, C, D) with gradient proportioning valve", unit: "", source: `HPLC.pdf p.7–9 (GPV test A&B, A&C, A&D); ${SRC_NOTE}` },
+  injectorType: { value: "Autosampler", unit: "", source: `HPLC.pdf p.6 (autosampler linearity); ${SRC_NOTE}` },
+  injectorCapacity: { value: 100, unit: "µL", source: `HPLC.pdf p.6 ("For 100 µL injector capacity"); ${SRC_NOTE}` },
+  detectorType: { value: "UV detector (UV lamp)", unit: "", source: `HPLC.pdf p.3 (lamp energy, UV lamp hours); ${SRC_NOTE}` },
+  detectorWavelength: { value: "272 nm (precision / linearity; wavelength check 267–277 nm); 254 nm (lamp energy / GPV)", unit: "", source: `HPLC.pdf p.3–7; ${SRC_NOTE}` },
+  columnType: { value: "C18", unit: "", source: `HPLC.pdf p.4 (chromatographic conditions); ${SRC_NOTE}` },
+  columnDimensions: { value: "25 cm × 4.6 mm", unit: "", source: `HPLC.pdf p.4 (chromatographic conditions); ${SRC_NOTE}` },
+  calibrationInterval: { value: "Semi-annual (6 months)", unit: "", source: `HPLC.pdf p.1 ("Semi Annual Calibration"); ${SRC_NOTE}` },
+};
 
 /** Equipment information fields required by the protocol (HPLC.pdf execution prompt §2.2); unknown values show "Needs Equipment Information". */
 export const HPLC_EQUIPMENT_FIELDS = [

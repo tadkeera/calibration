@@ -9,12 +9,15 @@
  *    revision (read-only unless it is a Draft).
  *  • Edit always works on a Draft — editing an approved protocol creates a
  *    new Draft copied from the active approved revision.
+ *  • Verified: the Quality Manager signs that the pending acceptance criteria
+ *    and cited references were checked against their sources (values are
+ *    never changed; missing limits stay pending) — clears those blockers.
  *  • Approve: Draft → Approved (active) in one step, Quality Manager only,
  *    password-signed; the previous approved revision becomes Superseded.
  * Every rule is enforced by the backend; the UI only reflects it.
  */
 import { useEffect, useMemo, useState } from "react";
-import { BookMarked, CheckCircle2, ClipboardList, FileDown, FilePlus2, LayoutGrid, PencilLine, Settings2 } from "lucide-react";
+import { BadgeCheck, BookMarked, CheckCircle2, ClipboardList, FileDown, FilePlus2, LayoutGrid, PencilLine, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { GRAPH_TYPES, SOURCE_CLASSES } from "@shared/protocols/model";
@@ -308,6 +311,7 @@ function RevisionBody({ revisionId, protocolId, instrumentKey, permissions, hasD
           {rv.locked ? " — approved and superseded revisions cannot be modified; Edit creates a new Draft." : ""}
         </div>
       </Panel>
+      {isDraft && <VerifyPanel r={r} canVerify={permissions.canApprove} user={user} onVerified={() => void utils.protocols.invalidate()} />}
       {isDraft && <ApprovePanel r={r} canApprove={permissions.canApprove} user={user} onApproved={() => { void utils.protocols.invalidate(); onChanged(revisionId); }} />}
       <ContentView content={rv.content} refName={refName} />
       <Panel title="Formulas and graphs per test">
@@ -357,6 +361,57 @@ function RevisionBody({ revisionId, protocolId, instrumentKey, permissions, hasD
 }
 
 type RevisionData = RevisionDetailDto;
+
+function VerifyPanel({ r, canVerify, user, onVerified }: { r: RevisionData; canVerify: boolean; user: PmUser; onVerified: () => void }) {
+  const verify = trpc.protocols.verifyForApproval.useMutation();
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState("");
+  const [statement, setStatement] = useState("");
+  const pendingCriteria = r.revision.content.sections.flatMap(s => s.tests.flatMap(t => t.criteria.filter(c => c.verificationStatus !== "verified").map(c => ({ test: t, c }))));
+  const pendingRefs = r.references.filter(x => x.verificationStatus === "pending-verification");
+  const verifiedCount = r.revision.content.sections.reduce((n, s) => n + s.tests.reduce((m, t) => m + t.criteria.filter(c => c.verificationStatus === "verified").length, 0), 0);
+  const nothingPending = !pendingCriteria.length && !pendingRefs.length;
+  return (
+    <Panel
+      title={<><BadgeCheck size={15} /> Source verification {nothingPending ? <span className="pm-badge pm-tone-ok">Verified</span> : <span className="pm-badge pm-tone-warn">{pendingCriteria.length + pendingRefs.length} pending</span>}</>}
+      actions={canVerify && !nothingPending ? <button type="button" className="pm-btn primary" onClick={() => setOpen(o => !o)}><BadgeCheck size={14} /> Verified</button> : undefined}
+    >
+      <div className="pm-muted">
+        {verifiedCount} acceptance criterion/criteria verified · {pendingCriteria.length} pending · {pendingRefs.length} reference(s) pending verification.
+        {nothingPending ? " All criteria and cited references are verified — the draft can be approved if no other blocker remains." : ""}
+      </div>
+      {!canVerify && !nothingPending && <div className="pm-muted" style={{ marginTop: 6 }}>Only a Quality Manager (authorised user) can mark criteria and references as verified.</div>}
+      {canVerify && open && !nothingPending && (
+        <div style={{ marginTop: 8 }}>
+          <div className="pm-alert pm-alert-warn"><div>
+            <strong>You confirm that each item below was checked against its source.</strong> Values and limits are not changed. Criteria without a configured numeric limit and references without an edition / revision stay pending. Approval remains a separate signed step.
+            {pendingCriteria.length > 0 && <ul>{pendingCriteria.map(({ test, c }) => <li key={`${test.key}/${c.key}`}><strong>{test.name}</strong> — {c.parameter} {c.comparison} {[c.lower, c.upper, c.target, c.tolerance].filter(v => v !== null).join(" / ")} {c.unit} <span className="pm-muted pm-mono">({test.key}/{c.key})</span>{c.referenceClause ? <span className="pm-muted"> · {c.referenceClause}</span> : null}</li>)}</ul>}
+            {pendingRefs.length > 0 && <ul>{pendingRefs.map(x => <li key={x.id}>Reference <span className="pm-mono">{x.code}</span> — {x.title}{x.edition ? ` (${x.edition})` : ""}</li>)}</ul>}
+          </div></div>
+          <div className="pm-grid" style={{ marginTop: 8 }}>
+            <Field label="Verification statement (what was checked, against which source)" wide><textarea rows={2} value={statement} onChange={e => setStatement(e.target.value)} placeholder="e.g. Criteria and limits checked against HPLC.pdf pages 1–9" /></Field>
+            <SignatureBox meaning="Source verification by Quality Manager" signer={user.name ?? `user ${user.id}`} password={password} onPassword={setPassword} detail={`for ${r.protocol.protocolNumber} ${rev2(r.revision.revisionNumber)}`} />
+            <div className="pm-row">
+              <button type="button" className="pm-btn primary" disabled={verify.isPending || !password || statement.trim().length < 10} onClick={async () => {
+                if (!window.confirm(`Mark ${pendingCriteria.length} criterion/criteria and ${pendingRefs.length} reference(s) as verified for ${r.protocol.protocolNumber} ${rev2(r.revision.revisionNumber)}?`)) return;
+                try {
+                  const res = await verify.mutateAsync({ revisionId: r.revision.id, expectedRowVersion: r.revision.rowVersion, statement: statement.trim(), password });
+                  setPassword("");
+                  setOpen(false);
+                  toast.success(`Verified: ${res.verifiedCriteria.length} criterion/criteria, ${res.verifiedReferences.length} reference(s)${res.skipped.length ? ` — ${res.skipped.length} item(s) stay pending` : ""}`);
+                  if (res.skipped.length) toast.warning(res.skipped.join("\n"));
+                  onVerified();
+                } catch (e) {
+                  toast.error(errorText(e));
+                }
+              }}>{verify.isPending ? "Verifying…" : "Confirm verification"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </Panel>
+  );
+}
 
 function ApprovePanel({ r, canApprove, user, onApproved }: { r: RevisionData; canApprove: boolean; user: PmUser; onApproved: () => void }) {
   const approve = trpc.protocols.approve.useMutation();

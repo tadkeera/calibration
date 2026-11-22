@@ -1,6 +1,7 @@
 /**
- * «Equipment Settings» — single page to view and edit equipment
- * identity and technical specifications.
+ * «Equipment Settings» — equipment list; clicking an equipment opens its
+ * information page (every identity / specification field with the recorded
+ * value and source); "Edit equipment data" opens the controlled editor.
  *
  *  - typed, unit-aware specification groups (no automatic unit conversion);
  *  - duplicate equipment-ID / serial check;
@@ -14,10 +15,11 @@
  *    snapshot. Specification values never change acceptance criteria.
  */
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Archive, History, Link2, ListChecks, Plus, Save, Search, Wrench } from "lucide-react";
+import { AlertTriangle, Archive, ArrowLeft, ArrowRight, Eye, History, Link2, ListChecks, PencilLine, Plus, Save, Search, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { diffEquipment, IDENTITY_FIELDS, NOT_AVAILABLE, SPEC_CATALOG, SPEC_GROUPS, specDefinitions, specIssues, type EquipmentIdentity, type SpecDefinition, type SpecMap } from "@shared/protocols/equipment";
+import { HPLC_EQUIPMENT_FIELDS, HPLC_INSTRUMENT_KEY } from "@shared/protocols/hplcLc2030";
 import { ErrorBox, Field, Loading, Panel, askReason, errorText, fmtDate, type PmUser, type ProtocolOutputs } from "./common";
 import "./protocols.css";
 
@@ -33,7 +35,9 @@ export function EquipmentDataPage({ user, language = "ar" }: { user: PmUser; lan
   const t = (en: string, ar: string) => (language === "ar" ? ar : en);
   const status = trpc.protocols.moduleStatus.useQuery(undefined, { retry: false });
   const list = trpc.protocols.equipmentData.useQuery(undefined, { enabled: !!status.data?.ok });
+  /** Clicking an equipment opens its own information page (list ⇄ detail). */
   const [selected, setSelected] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState("");
   const [showRetired, setShowRetired] = useState(false);
@@ -44,9 +48,16 @@ export function EquipmentDataPage({ user, language = "ar" }: { user: PmUser; lan
     return (list.data ?? []).filter(e => (showRetired || e.status !== "retired") && (!s || [e.identity.instrumentId, e.identity.nameEn, e.identity.nameAr, e.identity.model, e.identity.manufacturer, e.identity.serialNumber].some(v => v.toLowerCase().includes(s))));
   }, [list.data, search, showRetired]);
 
-  useEffect(() => {
-    if (!selected && rows.length && !creating) setSelected(rows[0].instrumentKey);
-  }, [rows, selected, creating]);
+  const open = (key: string) => {
+    setCreating(false);
+    setEditing(false);
+    setSelected(key);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  const back = () => {
+    setSelected(null);
+    setEditing(false);
+  };
 
   return (
     <div className="pm-root page-enter" dir={language === "ar" ? "rtl" : "ltr"}>
@@ -54,7 +65,7 @@ export function EquipmentDataPage({ user, language = "ar" }: { user: PmUser; lan
         <div>
           <span className="eyebrow">EQUIPMENT DATA &amp; SPECIFICATIONS</span>
           <h1>{EQUIPMENT_PAGE_TITLE}</h1>
-          <p>{t("Equipment identity and technical specifications. Changes are versioned, audited and linked automatically to protocols; historical records are never altered.", "هوية الأجهزة ومواصفاتها الفنية. كل تعديل له إصدار وسجل تدقيق ويرتبط تلقائياً بالبروتوكولات، ولا تُعدَّل السجلات التاريخية أبداً.")}</p>
+          <p>{t("Equipment identity and technical specifications. Click an equipment to open its information page. Changes are versioned, audited and linked automatically to protocols; historical records are never altered.", "هوية الأجهزة ومواصفاتها الفنية. اضغط على أي جهاز لفتح صفحة بياناته. كل تعديل له إصدار وسجل تدقيق ويرتبط تلقائياً بالبروتوكولات، ولا تُعدَّل السجلات التاريخية أبداً.")}</p>
         </div>
         <div className="page-topline-icon"><Wrench size={26} /></div>
       </section>
@@ -65,38 +76,155 @@ export function EquipmentDataPage({ user, language = "ar" }: { user: PmUser; lan
           {!status.data.workflowOk && (
             <div className="pm-alert pm-alert-warn"><AlertTriangle size={16} /><div>{t("Editing requires the v3 tables. Re-run server/sql/protocol_management_migration.sql in Supabase. Missing:", "التعديل يتطلب جداول الإصدار v3. أعد تشغيل ملف الترحيل في Supabase. الناقص:")} {status.data.workflowMissing.join(", ")}</div></div>
           )}
-          <div className="pm-equipment-layout">
-            <Panel title={t("Equipment", "الأجهزة")} actions={!readOnly && <button type="button" className="pm-btn small primary" onClick={() => { setCreating(true); setSelected(null); }}><Plus size={14} /> {t("New equipment", "جهاز جديد")}</button>}>
+          {selected ? (
+            <div className="pm-grid">
+              <div className="pm-row">
+                <button type="button" className="pm-btn" onClick={back}>{language === "ar" ? <ArrowRight size={14} /> : <ArrowLeft size={14} />} {t("Back to equipment list", "العودة إلى قائمة الأجهزة")}</button>
+                {!readOnly && status.data.workflowOk && (
+                  editing
+                    ? <button type="button" className="pm-btn" onClick={() => setEditing(false)}><Eye size={14} /> {t("View information", "عرض البيانات")}</button>
+                    : <button type="button" className="pm-btn primary" onClick={() => setEditing(true)}><PencilLine size={14} /> {t("Edit equipment data", "تعديل بيانات الجهاز")}</button>
+                )}
+              </div>
+              {editing
+                ? <EquipmentDetail key={selected} instrumentKey={selected} lang={language} all={list.data ?? []} readOnly={readOnly || !status.data.workflowOk} />
+                : <EquipmentInfoPage key={selected} instrumentKey={selected} lang={language} />}
+            </div>
+          ) : creating ? (
+            <CreateEquipment lang={language} all={list.data ?? []} onDone={key => { setCreating(false); open(key); }} onCancel={() => setCreating(false)} />
+          ) : (
+            <Panel title={t("Equipment", "الأجهزة")} actions={!readOnly && <button type="button" className="pm-btn small primary" onClick={() => setCreating(true)}><Plus size={14} /> {t("New equipment", "جهاز جديد")}</button>}>
               <div className="pm-grid" style={{ gap: 8 }}>
-                <label className="pm-field"><span><Search size={12} /> {t("Search", "بحث")}</span><input value={search} onChange={e => setSearch(e.target.value)} placeholder={t("ID, name, model, serial…", "الرقم، الاسم، الموديل، التسلسلي…")} /></label>
-                <label className="pm-check"><input type="checkbox" checked={showRetired} onChange={e => setShowRetired(e.target.checked)} /> {t("Show retired", "إظهار المُستبعدة")}</label>
+                <div className="pm-row">
+                  <label className="pm-field" style={{ flex: 1, minWidth: 220 }}><span><Search size={12} /> {t("Search", "بحث")}</span><input value={search} onChange={e => setSearch(e.target.value)} placeholder={t("ID, name, model, serial…", "الرقم، الاسم، الموديل، التسلسلي…")} /></label>
+                  <label className="pm-check"><input type="checkbox" checked={showRetired} onChange={e => setShowRetired(e.target.checked)} /> {t("Show retired", "إظهار المُستبعدة")}</label>
+                </div>
                 {list.isLoading ? <Loading /> : list.error ? <ErrorBox error={list.error} /> : (
-                  <ul className="pm-equipment-list">
-                    {rows.map(e => (
-                      <li key={e.instrumentKey}>
-                        <button type="button" className={selected === e.instrumentKey ? "is-active" : ""} onClick={() => { setCreating(false); setSelected(e.instrumentKey); }}>
-                          <span className="pm-equipment-dot" style={{ background: e.accent }} />
-                          <span>
-                            <strong>{e.identity.instrumentId || "—"}</strong> {language === "ar" ? e.identity.nameAr || e.identity.nameEn : e.identity.nameEn}
-                            <div className="pm-muted">{e.identity.manufacturer} {e.identity.model}{e.status === "retired" ? ` · ${t("retired", "مُستبعد")}` : ""}</div>
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                    {!rows.length && <li className="pm-empty">{t("No equipment", "لا توجد أجهزة")}</li>}
-                  </ul>
+                  <div className="pm-table-wrap">
+                    <table className="pm-table">
+                      <thead><tr><th>{t("Equipment ID", "رقم الجهاز")}</th><th>{t("Name", "الاسم")}</th><th>{t("Manufacturer / model", "الشركة / الموديل")}</th><th>{t("Serial number", "الرقم التسلسلي")}</th><th>{t("Status", "الحالة")}</th><th /></tr></thead>
+                      <tbody>
+                        {rows.map(e => (
+                          <tr key={e.instrumentKey} className="is-click" onClick={() => open(e.instrumentKey)} tabIndex={0} onKeyDown={ev => { if (ev.key === "Enter") open(e.instrumentKey); }}>
+                            <td><span className="pm-equipment-dot" style={{ background: e.accent, display: "inline-block", marginInlineEnd: 6 }} /><strong>{e.identity.instrumentId || "—"}</strong></td>
+                            <td>{language === "ar" ? e.identity.nameAr || e.identity.nameEn : e.identity.nameEn}</td>
+                            <td>{e.identity.manufacturer} {e.identity.model}</td>
+                            <td className="pm-mono">{e.identity.serialNumber || "—"}</td>
+                            <td><span className={`pm-badge ${e.status === "retired" ? "pm-tone-muted" : "pm-tone-ok"}`}>{e.status === "retired" ? t("Retired", "مُستبعد") : t("Active", "نشط")}</span></td>
+                            <td><button type="button" className="pm-btn small" onClick={ev => { ev.stopPropagation(); open(e.instrumentKey); }}>{t("Open", "فتح")}</button></td>
+                          </tr>
+                        ))}
+                        {!rows.length && <tr><td colSpan={6} className="pm-empty">{t("No equipment", "لا توجد أجهزة")}</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
             </Panel>
-            <div className="pm-grid">
-              {creating ? <CreateEquipment lang={language} all={list.data ?? []} onDone={key => { setCreating(false); setSelected(key); }} onCancel={() => setCreating(false)} />
-                : selected ? <EquipmentDetail key={selected} instrumentKey={selected} lang={language} all={list.data ?? []} readOnly={readOnly || !status.data.workflowOk} />
-                : <div className="pm-empty">{t("Select equipment", "اختر جهازاً")}</div>}
-            </div>
-          </div>
+          )}
         </>
       )}
     </div>
+  );
+}
+
+/* --------------------------- information page --------------------------- */
+
+const fmtSpec = (v: SpecMap[string] | undefined) => (v && v.value !== null && String(v.value).trim() !== "" ? `${v.value}${v.unit ? ` ${v.unit}` : ""}` : null);
+
+/**
+ * Read-only information page of one equipment: every identity field and every
+ * specification field of its type with the recorded value, unit and source.
+ * For the HPLC, the equipment-information fields required by the protocol
+ * (HPLC.pdf) are listed as well. Missing values are shown, never invented.
+ */
+function EquipmentInfoPage({ instrumentKey, lang }: { instrumentKey: string; lang: Lang }) {
+  const t = (en: string, ar: string) => (lang === "ar" ? ar : en);
+  const q = trpc.protocols.equipmentDetail.useQuery({ instrumentKey });
+  if (q.isLoading) return <Loading />;
+  if (q.error) return <ErrorBox error={q.error} />;
+  const d = q.data!;
+  const e = d.equipment;
+  const specs = e.specs as SpecMap;
+  const missing = <span className="pm-badge pm-tone-warn">{NOT_AVAILABLE}</span>;
+  const definedKeys = new Set(d.definitions.map(x => x.key));
+  const extra = Object.keys(specs).filter(k => !definedKeys.has(k) && fmtSpec(specs[k]));
+  const recorded = d.definitions.filter(x => fmtSpec(specs[x.key])).length;
+  const hplc = instrumentKey === HPLC_INSTRUMENT_KEY;
+  return (
+    <>
+      <Panel
+        title={<>{e.identity.instrumentId || "—"} — {lang === "ar" ? e.identity.nameAr || e.identity.nameEn : e.identity.nameEn} <span className="pm-muted">· {e.identity.manufacturer} {e.identity.model}</span></>}
+        actions={<>
+          <span className={`pm-badge ${e.status === "retired" ? "pm-tone-muted" : "pm-tone-ok"}`}>{e.status === "retired" ? t("Retired", "مُستبعد") : t("Active", "نشط")}</span>
+          <span className="pm-badge pm-tone-neutral" title="Equipment data version (fingerprint)">v{e.specsRowVersion} · {e.version}</span>
+        </>}
+      >
+        <div className="pm-muted">{t(`Equipment type: ${e.equipmentType} · ${recorded} of ${d.definitions.length} specification fields recorded · last update ${e.updatedAt ? fmtDate(e.updatedAt, true) : "—"}${e.updatedBy ? ` by ${e.updatedBy}` : ""}`, `نوع الجهاز: ${e.equipmentType} · ${recorded} من ${d.definitions.length} حقل مواصفات مسجّل · آخر تحديث ${e.updatedAt ? fmtDate(e.updatedAt, true) : "—"}${e.updatedBy ? ` بواسطة ${e.updatedBy}` : ""}`)}</div>
+        {e.status === "retired" && <div className="pm-alert pm-alert-info" style={{ marginTop: 8 }}><AlertTriangle size={16} /><div>{t("Retired", "مُستبعد")}: {e.retiredReason}</div></div>}
+      </Panel>
+
+      <Panel title={t("Identity", "الهوية")}>
+        <div className="pm-table-wrap">
+          <table className="pm-table">
+            <thead><tr><th>{t("Field", "الحقل")}</th><th>{t("Recorded value", "القيمة المسجّلة")}</th></tr></thead>
+            <tbody>{IDENTITY_FIELDS.map(f => <tr key={f.key}><td>{lang === "ar" ? f.labelAr : f.label}</td><td dir={f.key === "nameAr" ? "rtl" : undefined}>{e.identity[f.key]?.trim() ? <strong>{e.identity[f.key]}</strong> : missing}</td></tr>)}</tbody>
+          </table>
+        </div>
+      </Panel>
+
+      {hplc && (
+        <Panel title={t("Equipment information required by the HPLC protocol (HPLC.pdf)", "بيانات الجهاز المطلوبة في بروتوكول HPLC (ملف HPLC.pdf)")}>
+          <div className="pm-table-wrap">
+            <table className="pm-table">
+              <thead><tr><th>{t("Group", "المجموعة")}</th><th>{t("Field", "الحقل")}</th><th>{t("Recorded value", "القيمة المسجّلة")}</th><th>{t("Source", "المصدر")}</th></tr></thead>
+              <tbody>{HPLC_EQUIPMENT_FIELDS.map(([group, label, path]) => {
+                const [kind, k] = path.split(":");
+                const value = kind === "identity" ? (e.identity as Record<string, string>)[k]?.trim() || null : fmtSpec(specs[k]);
+                const source = kind === "identity" ? t("Equipment Master", "سجل الأجهزة") : specs[k]?.source || "";
+                return <tr key={path}><td>{group}</td><td>{label}</td><td>{value ? <strong>{value}</strong> : <span className="pm-badge pm-tone-warn">Needs Equipment Information</span>}</td><td className="pm-muted">{source || "—"}</td></tr>;
+              })}</tbody>
+            </table>
+          </div>
+          <div className="pm-muted" style={{ marginTop: 6 }}>{t("Historical results and dates of the 2022 calibration record are not used as equipment data.", "لا تُستخدم نتائج وتواريخ سجل معايرة 2022 التاريخي كبيانات للجهاز.")}</div>
+        </Panel>
+      )}
+
+      {SPEC_GROUPS.map(g => {
+        const defs = d.definitions.filter(x => x.group === g.key);
+        if (!defs.length) return null;
+        return (
+          <Panel key={g.key} title={lang === "ar" ? g.labelAr : g.label}>
+            <div className="pm-table-wrap">
+              <table className="pm-table">
+                <thead><tr><th>{t("Field", "الحقل")}</th><th>{t("Recorded value", "القيمة المسجّلة")}</th><th>{t("Source", "المصدر")}</th></tr></thead>
+                <tbody>{defs.map(def => {
+                  const v = fmtSpec(specs[def.key]);
+                  return <tr key={def.key}><td>{lang === "ar" ? def.labelAr : def.label}{def.critical ? " ★" : ""}</td><td>{v ? <strong>{v}</strong> : missing}</td><td className="pm-muted">{specs[def.key]?.source || "—"}</td></tr>;
+                })}</tbody>
+              </table>
+            </div>
+          </Panel>
+        );
+      })}
+
+      {extra.length > 0 && (
+        <Panel title={t("Other recorded fields", "حقول أخرى مسجّلة")}>
+          <div className="pm-table-wrap">
+            <table className="pm-table">
+              <thead><tr><th>{t("Field", "الحقل")}</th><th>{t("Recorded value", "القيمة المسجّلة")}</th><th>{t("Source", "المصدر")}</th></tr></thead>
+              <tbody>{extra.map(k => <tr key={k}><td className="pm-mono">{k}</td><td><strong>{fmtSpec(specs[k])}</strong></td><td className="pm-muted">{specs[k]?.source || "—"}</td></tr>)}</tbody>
+            </table>
+          </div>
+        </Panel>
+      )}
+
+      <Panel title={t("Linked protocols", "البروتوكولات المرتبطة")}>
+        {d.protocols.length ? (
+          <ul style={{ margin: 0 }}>{d.protocols.map(p => <li key={p.protocolId}><strong>{p.protocolNumber}</strong> — {p.title} <span className={`pm-badge ${p.revisionStatus === "released" ? "pm-tone-ok" : "pm-tone-warn"}`}>{p.revisionStatus === "released" ? "approved" : p.revisionStatus}</span></li>)}</ul>
+        ) : <div className="pm-empty">{t("No protocols are linked to this equipment.", "لا توجد بروتوكولات مرتبطة بهذا الجهاز.")}</div>}
+      </Panel>
+    </>
   );
 }
 
