@@ -90,8 +90,8 @@ describe("calibration workflow v3 (SQLite store)", () => {
       const rev = await svc.getRevision(admin, line.revisionId!);
       expect(rev.revision.status).toBe("draft");
       if (line.protocolNumber === "CAL-QC-HPLC-001") {
-        // HPLC.pdf criteria transcribed with page evidence; the two open interpretations stay pending for the Quality Manager.
-        expect(allCriteria(rev.revision.content).filter(c => c.criterion.verificationStatus === "pending-technical-verification").map(c => c.criterion.key).sort()).toEqual(["flow_limit", "gpv_limit"]);
+        // HPLC.pdf criteria transcribed with page evidence; flow (p.1 setpoints) and GPV (± 2.0 % relative) resolved by user decision — none pending.
+        expect(allCriteria(rev.revision.content).filter(c => c.criterion.verificationStatus === "pending-technical-verification").map(c => c.criterion.key)).toEqual([]);
         continue;
       }
       expect(allCriteria(rev.revision.content).every(c => c.criterion.verificationStatus === "pending-technical-verification")).toBe(true);

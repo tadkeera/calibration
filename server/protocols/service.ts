@@ -35,7 +35,7 @@ import {
   type ExecutionReviewAction,
 } from "../../shared/protocols/executionReview";
 import { DUE_SOON_DAYS, computeSchedule, type ScheduleItem } from "../../shared/protocols/schedule";
-import { approvalBlockers, qmApprovalBlockers, structuralIssues, submissionIssues, type GapDecisionRecord, type ReferenceLookup } from "../../shared/protocols/validation";
+import { approvalBlockers, criterionHasLimit, qmApprovalBlockers, structuralIssues, submissionIssues, type GapDecisionRecord, type ReferenceLookup } from "../../shared/protocols/validation";
 import {
   GRANTABLE_DUTIES,
   TRANSITIONS,
@@ -1423,6 +1423,65 @@ export async function logPdfGenerated(actor: Actor, input: { revisionId: string;
 /* ------------------------------------------------------------------ */
 /* Internals shared with the run / equipment / package services          */
 /* ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ */
+/* Source verification (Quality Manager "Verified")                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The Quality Manager confirms — with a password signature and a written
+ * verification statement — that the draft's acceptance criteria and cited
+ * references were checked against their sources. Only "pending" items are
+ * changed; values / limits are never altered. Criteria whose numeric limit is
+ * not configured stay pending (a missing value is never "verified"), and
+ * references without an edition / revision / effective date stay pending.
+ * Approval remains a separate signed step.
+ */
+export async function verifyForApproval(actor: Actor, input: { revisionId: string; expectedRowVersion: number; statement: string; password?: string }) {
+  const duties = await requireDuty(actor, "quality-manager");
+  const revision = await loadRevision(input.revisionId);
+  if (revision.status !== "draft") throw new ProtocolError("PRECONDITION_FAILED", `Revision ${revision.revision_number} is ${STATUS_LABELS[revision.status]}; only a Draft can be verified (approved revisions are never edited — create a new revision)`);
+  if (revision.row_version !== input.expectedRowVersion) throw new ProtocolError("PRECONDITION_FAILED", "The revision changed since it was loaded; reload and retry");
+  const statement = input.statement.trim();
+  if (statement.length < 10) throw new ProtocolError("BAD_REQUEST", "A verification statement (at least 10 characters) is required — state what was checked against which source");
+  const protocol = await loadProtocol(revision.protocol_id);
+  await requireSignature(actor, duties, input.password, { protocolId: protocol.id, revisionId: revision.id, revisionNumber: revision.revision_number, entityType: "revision", entityId: revision.id, meaning: "Source verification by Quality Manager" });
+  const t = now();
+  const stamp = `Verified against source by Quality Manager ${actor.name} (${t.slice(0, 10)}): ${statement}`;
+  const content = parseProtocolContent(revision.content);
+  const verifiedCriteria: string[] = [];
+  const skipped: string[] = [];
+  content.sections.forEach(sec => sec.tests.forEach(test => test.criteria.forEach(c => {
+    if (c.verificationStatus === "verified") return;
+    const numeric = !["pass-fail", "record-only"].includes(c.comparison);
+    if (numeric && !criterionHasLimit(c)) { skipped.push(`${test.key}/${c.key}: numeric limit not configured — stays Needs Source Verification`); return; }
+    if (!c.referenceId && !c.justification.trim()) { skipped.push(`${test.key}/${c.key}: no reference or justification — stays Needs Source Verification`); return; }
+    c.verificationStatus = "verified";
+    c.verificationEvidence = (c.verificationEvidence.trim() ? `${c.verificationEvidence.trim()} | ${stamp}` : stamp).slice(0, 2000);
+    verifiedCriteria.push(`${test.key}/${c.key}`);
+  })));
+  const { rows: refRows } = await referenceLookup();
+  const used = new Set(collectReferenceIds(content));
+  const verifiedReferences: string[] = [];
+  const changes: Change[] = [];
+  refRows.filter(r => used.has(r.id) && r.verification_status === "pending-verification").forEach(r => {
+    if (!(r.edition ?? "").trim() && !(r.revision ?? "").trim() && !r.effective_date) { skipped.push(`Reference ${r.code}: no edition / revision / effective date — stays pending`); return; }
+    const notes = [r.notes ?? "", stamp].filter(Boolean).join("\n").slice(0, 4000);
+    changes.push({ op: "update", table: "protocol_references", id: r.id, set: { verification_status: "verified", verified_at: t, verified_by_user_id: actor.id, verified_by_name: actor.name, notes, updated_at: t, row_version: r.row_version + 1 }, expect: { row_version: r.row_version } });
+    changes.push(audit(actor, duties, { protocolId: protocol.id, revisionId: revision.id, revisionNumber: revision.revision_number, entityType: "reference", entityId: r.id, action: "reference.verified", previous: { verificationStatus: r.verification_status }, next: { verificationStatus: "verified", verifiedBy: actor.name }, reason: statement }));
+    verifiedReferences.push(r.code);
+  });
+  if (verifiedCriteria.length) {
+    const parsed = parseContentOrThrow(content);
+    changes.push({ op: "update", table: "protocol_revisions", id: revision.id, set: { content: parsed, ...revisionDerived(parsed), updated_at: t, row_version: revision.row_version + 1 }, expect: { row_version: revision.row_version, status: "draft" } });
+  }
+  if (changes.length)
+    changes.push(audit(actor, duties, { protocolId: protocol.id, revisionId: revision.id, revisionNumber: revision.revision_number, entityType: "revision", entityId: revision.id, action: "revision.sources-verified", previous: { pendingCriteria: verifiedCriteria, pendingReferences: verifiedReferences }, next: { verifiedCriteria, verifiedReferences, skipped, signedBy: actor.name, signedAt: t }, reason: statement }));
+  if (changes.length) await protocolStore().apply(changes);
+  const after = await loadRevision(revision.id);
+  const { lookup } = await referenceLookup();
+  return { verifiedCriteria, verifiedReferences, skipped, rowVersion: after.row_version, remainingBlockers: qmApprovalBlockers(after.content, { references: lookup, today: today() }) };
+}
 
 export const internals = { requireDuty, dutiesOf, audit, notify, id, now, loadProtocol, loadRevision, referenceLookup, actorRole, parseContentOrThrow, assertStructure, revisionDerived, revisionSummaries, mapRevisionSummary, mapReference };
 export type { ProtocolRow, RevisionRow };

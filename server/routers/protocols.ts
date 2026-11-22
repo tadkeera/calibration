@@ -225,6 +225,9 @@ export const protocolsRouter = router({
   edit: protectedProcedure
     .input(z.object({ protocolId: z.string().min(1).max(64), reason: z.string().max(1000) }))
     .mutation(({ ctx, input }) => run(() => validation.editProtocol(actorOf(ctx), input))),
+  verifyForApproval: protectedProcedure
+    .input(z.object({ revisionId, expectedRowVersion: z.number().int().positive(), statement: z.string().max(2000), password: signaturePassword }))
+    .mutation(({ ctx, input }) => run(() => service.verifyForApproval(actorOf(ctx), input))),
   approve: protectedProcedure
     .input(z.object({ revisionId, expectedRowVersion: z.number().int().positive(), comment: z.string().max(2000).optional(), password: signaturePassword }))
     .mutation(({ ctx, input }) => run(() => service.transition(actorOf(ctx), { ...input, action: "approve" }))),

@@ -13,9 +13,10 @@ import { closeLocalDatabase, createLocalUser } from "./localDb";
 import * as svc from "./protocols/service";
 import * as val from "./protocols/validationService";
 import * as seed from "./protocols/hplcSeed";
+import * as wf from "./protocols/workflowService";
 import { sqliteProtocolStore } from "./protocols/sqliteStore";
 import { evaluateExecution, type Measurements, type TestEvaluation } from "../shared/protocols/evaluate";
-import { HPLC_PROTOCOL_NUMBER, HPLC_TEST_KEYS, HPLC_TEST_NAMES, hplcProtocolContent } from "../shared/protocols/hplcLc2030";
+import { HPLC_PREVIOUS_SEED_VERSIONS, HPLC_PROTOCOL_NUMBER, HPLC_SEED_VERSION, HPLC_TEST_KEYS, HPLC_TEST_NAMES, hplcProtocolContent } from "../shared/protocols/hplcLc2030";
 import { structuralIssues } from "../shared/protocols/validation";
 import type { ProtocolContent } from "../shared/protocols/model";
 import { buildValidationPdf } from "../client/src/components/protocols/validationPdf";
@@ -54,7 +55,7 @@ const READ = {
   wl: [210, 225, 240, 252, 260, 266, 263, 255, 244, 230, 212],
   det: [101250, 202480, 304020, 404900, 507300],
   auto: [25210, 50380, 100950, 252400, 403100, 504700],
-  gpv: { AB10: [1000, 2015, 11050], AB50: [1000, 6080, 11050], AB90: [1000, 10010, 11050], AC10: [990, 1980, 10995], AC50: [990, 6010, 10995], AC90: [990, 9990, 10995], AD10: [1005, 2040, 11020], AD50: [1005, 6020, 11020], AD90: [1005, 10050, 11020] },
+  gpv: { AB10: [1000, 2015, 11050], AB50: [1000, 6080, 11050], AB90: [1000, 10010, 11050], AC10: [990, 1980, 10995], AC50: [990, 6010, 10995], AC90: [990, 9990, 10995], AD10: [1005, 2010, 11020], AD50: [1005, 6020, 11020], AD90: [1005, 10050, 11020] },
 };
 const FULL: Measurements = {
   hplc_flow_rate: { levels: READ.flow },
@@ -77,7 +78,10 @@ describe("HPLC protocol content (HPLC.pdf)", () => {
     expect(content.identification.description).toMatch(/Draft – Pending Quality Manager Approval/);
     expect(content.identification.description).toMatch(/Laboratory Calibration Reference/);
     // no USP system-suitability tests (the source is not a USP document; "USP" only appears in the "not a USP requirement" notice)
-    expect(JSON.stringify(tests)).not.toMatch(/USP|system suitability|tailing|plate count|theoretical plates/i);
+    const withoutEvidence = tests.map(t => ({ ...t, criteria: t.criteria.map(c => ({ ...c, verificationEvidence: "", conflictNote: "" })) }));
+    // the only USP mention is the documented gap: the supplied USP extracts give no GPV limit
+    expect(JSON.stringify(tests).match(/USP <\d+>[^"]*/g)!.every(m => /NOT SPECIFIED IN SUPPLIED USP SOURCE|specify no GPV limit/.test(m))).toBe(true);
+    expect(JSON.stringify(withoutEvidence)).not.toMatch(/USP|system suitability|tailing|plate count|theoretical plates/i);
     tests.forEach(t => {
       expect(t.referenceClause, t.key).toMatch(/HPLC\.pdf p\.\d/);
       expect(t.referenceIds).toEqual(["ref-hplc"]);
@@ -90,12 +94,26 @@ describe("HPLC protocol content (HPLC.pdf)", () => {
     expect(structuralIssues(content).filter(i => i.severity === "error")).toEqual([]);
   });
 
-  it("preserves the source discrepancies as review notes; open interpretations stay pending for the QM", () => {
+  it("preserves the source discrepancies as review notes; flow (note A) and GPV (note C) resolved by user decision — nothing pending", () => {
     expect(content.gaps.map(g => g.key)).toEqual(["noteA_flow_setpoints", "noteB_linearity_wording", "noteC_gpv_interpretation", "noteD_lamp_hours", "noteE_equipment_identity", "noteF_lamp_wavelength", "noteG_handwritten_details"]);
     const flowGap = content.gaps[0];
     expect(flowGap.specifications.map(s => s.displayValue)).toEqual(["1.0 / 1.5 / 2.0 mL/min", "0.5 / 1.5 / 2.5 mL/min"]);
     const pending = tests.flatMap(t => t.criteria.filter(c => c.verificationStatus !== "verified").map(c => c.key));
-    expect(pending.sort()).toEqual(["flow_limit", "gpv_limit"]);
+    expect(pending).toEqual([]);
+    // resolved conflicts stay documented (never overwritten silently)
+    const flowLimit = tests[0].criteria[0];
+    expect(flowLimit).toMatchObject({ key: "flow_limit", comparison: "abs<=", tolerance: 1.0, unit: "%" });
+    expect(flowLimit.conflictNote).toMatch(/Review note A \(resolved\).*0\.5 \/ 1\.5 \/ 2\.5/);
+    expect(flowLimit.verificationEvidence).toMatch(/1\.0 \/ 1\.5 \/ 2\.0 mL\/min \(HPLC\.pdf p\.1\)/);
+    const gpvLimit = tests[9].criteria[0];
+    expect(gpvLimit).toMatchObject({ key: "gpv_limit", parameter: "rel_dev", comparison: "abs<=", tolerance: 2.0, unit: "%" });
+    expect(gpvLimit.verificationEvidence).toMatch(/RELATIVE to the setting value/);
+    expect(gpvLimit.verificationEvidence).toMatch(/NOT SPECIFIED IN SUPPLIED USP SOURCE/);
+    expect(gpvLimit.conflictNote).toMatch(/Review note C \(resolved\)/);
+    const noteC = content.gaps.find(g => g.key === "noteC_gpv_interpretation")!;
+    expect(noteC.assessment).toMatch(/^RESOLVED/);
+    expect(noteC.specifications.some(sp => sp.sourceClass === "pharmacopoeial" && /NOT SPECIFIED IN SUPPLIED USP SOURCE/.test(sp.displayValue + sp.label + sp.clause))).toBe(true);
+    expect(content.gaps.find(g => g.key === "noteA_flow_setpoints")!.assessment).toMatch(/^RESOLVED/);
     tests.flatMap(t => t.criteria).filter(c => c.verificationStatus === "verified").forEach(c => expect(c.verificationEvidence).toMatch(/HPLC\.pdf p\.\d/));
     // flow setpoints 1.0 / 1.5 / 2.0 (HPLC.txt), V = 10.0 mL source default; no historical dates anywhere
     const flow = tests[0];
@@ -116,11 +134,16 @@ describe("HPLC calculations vs independent arithmetic", () => {
       expect(calc(r, "dev_pct", k as string).raw).toBeCloseTo(((actual - (set as number)) / (set as number)) * 100, 10);
       expect(calc(r, "abs_err_pct", k as string).raw).toBeCloseTo(Math.abs(((actual - (set as number)) / (set as number)) * 100), 10);
     });
-    // criterion pending QM review (setpoint conflict) → indicative only, never an automatic PASS
-    expect(r.status).toBe("UNDER REVIEW");
-    expect(r.criteria.every(c => /Indicative PASS/.test(c.message))).toBe(true);
+    // criterion verified (p.1 setpoints confirmed) → decisional
+    expect(r.status).toBe("PASS");
+    expect(r.criteria).toHaveLength(3);
+    expect(r.criteria.every(c => c.status === "PASS")).toBe(true);
     const fail = evalOne("hplc_flow_rate", { levels: { ...READ.flow, F2: [6.5] } }); // 1.538 → +2.56 %
-    expect(fail.criteria.find(c => c.levelKey === "F2")!.message).toMatch(/Indicative FAIL/);
+    expect(fail.status).toBe("FAIL");
+    expect(fail.criteria.find(c => c.levelKey === "F2")!.status).toBe("FAIL");
+    // just inside the limit: 1.009 mL/min at 1.0 → +0.9 %
+    const edge = evalOne("hplc_flow_rate", { levels: { ...READ.flow, F1: [10 / 1.009] } });
+    expect(edge.criteria.find(c => c.levelKey === "F1")!.status).toBe("PASS");
     // invalid time: never calculated, never a pass
     const bad = evalOne("hplc_flow_rate", { levels: { ...READ.flow, F1: [0] } });
     expect(bad.status).toBe("INCOMPLETE");
@@ -238,14 +261,29 @@ describe("HPLC calculations vs independent arithmetic", () => {
     expect(calc(zero, "carry_pct").raw).toBeNull();
   });
 
-  it("10 — GPV: actual % = (Hset − H0)/(H100 − H0) × 100; |actual − set| ≤ 2.0 pp (pending QM interpretation); H100 = H0 is not calculated", () => {
+  it("10 — GPV: actual % = (Hset − H0)/(H100 − H0) × 100; |actual − set| / set × 100 ≤ 2.0 % (relative); H100 = H0 is not calculated", () => {
     const r = evalOne("hplc_gpv", FULL.hplc_gpv);
     Object.entries(READ.gpv).forEach(([k, [h0, hs, h100]]) => {
+      const set = Number(k.slice(2));
       const actual = ((hs - h0) / (h100 - h0)) * 100;
       expect(calc(r, "actual", k).raw).toBeCloseTo(actual, 10);
-      expect(calc(r, "dev", k).raw).toBeCloseTo(actual - Number(k.slice(2)), 10);
+      expect(calc(r, "dev", k).raw).toBeCloseTo(actual - set, 10);
+      expect(calc(r, "rel_dev", k).raw).toBeCloseTo(((actual - set) / set) * 100, 10);
     });
-    expect(r.status).toBe("UNDER REVIEW");
+    expect(r.status).toBe("PASS");
+    expect(r.criteria).toHaveLength(9);
+    // relative, not percentage points: 10 % setting → 9.8–10.2 %; 50 % → 49–51 %; 90 % → 88.2–91.8 %
+    const gpv = (lv: Record<string, number[]>) => evalOne("hplc_gpv", { levels: { ...READ.gpv, ...lv } });
+    const st = (r2: TestEvaluation, k: string) => r2.criteria.find(c => c.levelKey === k)!.status;
+    expect(st(gpv({ AB10: [0, 102, 1000] }), "AB10")).toBe("PASS"); // 10.2 % → +2.0 %
+    expect(st(gpv({ AB10: [0, 98, 1000] }), "AB10")).toBe("PASS"); // 9.8 % → −2.0 %
+    expect(st(gpv({ AB10: [0, 103, 1000] }), "AB10")).toBe("FAIL"); // 10.3 % → +3.0 % (would pass as ± 2.0 pp)
+    expect(st(gpv({ AC10: [0, 105, 1000] }), "AC10")).toBe("FAIL"); // historical-style 10.5 % → +5.0 %
+    expect(st(gpv({ AB50: [0, 510, 1000] }), "AB50")).toBe("PASS"); // 51.0 % → +2.0 %
+    expect(st(gpv({ AB50: [0, 512, 1000] }), "AB50")).toBe("FAIL"); // 51.2 % → +2.4 %
+    expect(st(gpv({ AD90: [0, 918, 1000] }), "AD90")).toBe("PASS"); // 91.8 % → +2.0 %
+    expect(st(gpv({ AD90: [0, 919, 1000] }), "AD90")).toBe("FAIL"); // 91.9 % → +2.11 %
+    expect(gpv({ AB10: [0, 103, 1000] }).status).toBe("FAIL");
     const div0 = evalOne("hplc_gpv", { levels: { ...READ.gpv, AB10: [1000, 2000, 1000] } });
     expect(div0.status).toBe("INCOMPLETE");
     expect(calc(div0, "actual", "AB10").raw).toBeNull();
@@ -267,11 +305,32 @@ describe("HPLC calculations vs independent arithmetic", () => {
     expect(byTest("hplc_lamp_energy")).toEqual([]);
     expect(byTest("hplc_carryover")).toEqual([]);
     expect(evaluateExecution(content, {}).tests.flatMap(t => t.graphs)).toEqual([]);
-    expect(e.overall).toBe("UNDER REVIEW"); // flow + GPV criteria pending QM review → never an automatic PASS
+    expect(e.overall).toBe("PASS"); // content-level evaluation; New Validation still requires an approved revision
   });
 });
 
 /* ------------------------------ database ------------------------------ */
+/** The content as registered by the earlier seed v1 (PR #9): flow / GPV criteria pending, GPV limit in percentage points. */
+function seedV1Content(v2: ProtocolContent): ProtocolContent {
+  const v1 = structuredClone(v2);
+  v1.identification.description = v1.identification.description.replace(HPLC_SEED_VERSION, HPLC_PREVIOUS_SEED_VERSIONS[0]);
+  const t1 = v1.sections.flatMap(sx => sx.tests);
+  Object.assign(t1[0].criteria[0], { verificationStatus: "pending-technical-verification", verificationEvidence: "", conflictNote: "PENDING QUALITY REVIEW: setpoints 1.0 / 1.5 / 2.0 vs 0.5 / 1.5 / 2.5" });
+  const g = t1[9];
+  g.calculations = g.calculations.filter(cx => cx.key !== "rel_dev");
+  Object.assign(g.criteria[0], { parameter: "abs_dev", unit: "percentage points", verificationStatus: "pending-technical-verification", verificationEvidence: "", conflictNote: "PENDING QUALITY REVIEW: interpretation of \"Setting value ± 2.0\"" });
+  return v1;
+}
+/** Writes a DRAFT revision directly in the store (simulates the database state left by an earlier deployment). */
+async function writeRawDraft(revId: string, content: ProtocolContent) {
+  const [row] = await svc.protocolStore().select<Record<string, any>>("protocol_revisions", { where: { id: revId } });
+  const [prow] = await svc.protocolStore().select<Record<string, any>>("protocols", { where: { id: row.protocol_id } });
+  await svc.protocolStore().apply([
+    { op: "update", table: "protocol_revisions", id: revId, set: { content, row_version: row.row_version + 1 }, expect: { row_version: row.row_version } },
+    { op: "update", table: "protocols", id: prow.id, set: { description: content.identification.description, row_version: prow.row_version + 1 }, expect: { row_version: prow.row_version } },
+  ]);
+}
+
 const testDatabase = "/tmp/miayar-hplc.test.sqlite";
 const PW = "hplc-test-password-1";
 let admin: svc.Actor, editor: svc.Actor, qm: svc.Actor, normal: svc.Actor;
@@ -321,9 +380,57 @@ describe("HPLC protocol registration, approval, New Validation and PDF (SQLite)"
     expect(rev.revision.status).toBe("draft");
     expect(rev.revision.content.sections.flatMap(s => s.tests).map(t => t.key)).toEqual([...HPLC_TEST_KEYS]);
     expect(rev.revision.content.equipmentLinks).toMatchObject([{ instrumentKey: "hplc", instrumentId: "QC-I-104", serialNumber: "L22146101115 AE" }]);
-    expect(rev.revision.content.narrative.equipmentDescription).toMatch(/Pump Configuration: Needs Equipment Information/);
+    // equipment specifications documented in HPLC.pdf recorded on the Equipment Master (empty fields only, with source page)
+    expect(rev.revision.content.narrative.equipmentDescription).toMatch(/Pump Configuration: Four solvent channels/);
+    expect(rev.revision.content.narrative.equipmentDescription).toMatch(/Software Name: Needs Equipment Information/);
+    const eq = await wf.getEquipmentData("hplc");
+    expect(eq.equipment.specs.injectorCapacity).toMatchObject({ value: 100, unit: "µL" });
+    expect(eq.equipment.specs.columnDimensions.source).toMatch(/HPLC\.pdf p\.4/);
+    expect(eq.equipment.specs.lampHours).toBeUndefined(); // 2022 "as found" value never used
+    expect(eq.equipment.specs.lastCalibration).toBeUndefined(); // historical dates never used
+    expect(eq.changes.every(c => c.reference === "HPLC.pdf (RLS/QC/HPLC/02)")).toBe(true);
+    expect(await seed.seedHplcEquipmentSpecs(editor)).toEqual([]); // idempotent, never overwrites
     // never auto-approved: New Validation has no approved protocol yet
     expect((await val.activeProtocolForEquipment("hplc")).available).toBe(false);
+  });
+
+  it("upgrades a draft registered by the earlier seed (v1: flow / GPV pending, GPV in pp) to the current content — audited, and never over user edits", async () => {
+    const detail = await val.protocolForEquipment(editor, "hplc");
+    const revId = detail.protocol!.draftRevision!.id;
+    const current = await svc.getRevision(editor, revId);
+    const v2 = current.revision.content;
+    expect(v2.identification.description).toContain(HPLC_SEED_VERSION);
+    // Simulate the database state left by seed v1 (what PR #9 registered).
+    const v1 = seedV1Content(v2);
+    const writeRaw = (c: ProtocolContent) => writeRawDraft(revId, c);
+    await writeRaw(v1);
+    // Opening the Protocol page (author) upgrades it automatically.
+    await val.protocolBoard(editor);
+    let rev = await svc.getRevision(editor, revId);
+    expect(rev.revision.revisionNumber).toBe(1);
+    expect(rev.revision.status).toBe("draft");
+    expect(rev.revision.content.identification.description).toContain(HPLC_SEED_VERSION);
+    expect(rev.revision.content.sections).toEqual(v2.sections);
+    expect(await count("protocol_revisions")).toBe(1);
+    const audits = await svc.protocolStore().select<Record<string, any>>("protocol_audit_events", { where: { revision_id: revId, action: "revision.content-updated" } });
+    expect(audits.map(a => a.reason)).toContain(seed.HPLC_UPGRADE_REASON);
+    expect((await val.activeProtocolForEquipment("hplc")).available).toBe(false); // never approved automatically
+
+    // A v1 draft that a user edited is NOT overwritten.
+    await writeRaw(v1);
+    rev = await svc.getRevision(editor, revId);
+    const edited = structuredClone(rev.revision.content);
+    edited.narrative.scope = `${edited.narrative.scope} (local note by editor)`;
+    await svc.saveDraft(editor, { revisionId: revId, expectedRowVersion: rev.revision.rowVersion, content: edited, reason: "Editor change (test)" });
+    const blocked = await seed.seedHplcProtocol(editor);
+    expect(blocked.outcome).toBe("blocked");
+    expect(blocked.notes.join(" ")).toMatch(/NOT overwritten/);
+    rev = await svc.getRevision(editor, revId);
+    expect(rev.revision.content.narrative.scope).toContain("(local note by editor)");
+    expect(rev.revision.content.sections.flatMap(sx => sx.tests)[9].criteria[0].parameter).toBe("abs_dev");
+    // The user applies the update deliberately (restoring the current seed content).
+    await svc.saveDraft(editor, { revisionId: revId, expectedRowVersion: rev.revision.rowVersion, content: v2, reason: "Apply updated HPLC.pdf content (test)" });
+    expect((await seed.seedHplcProtocol(editor)).outcome).toBe("already-current");
   });
 
   it("QM approval requires the reference and the pending criteria to be verified; then New Validation runs all 10 tests and stores an immutable record + PDF", async () => {
@@ -332,17 +439,31 @@ describe("HPLC protocol registration, approval, New Validation and PDF (SQLite)"
     let rev = await svc.getRevision(qm, revId);
     expect((await (async () => { try { await svc.transition(qm, { revisionId: revId, expectedRowVersion: rev.revision.rowVersion, action: "approve", password: PW }); } catch (e) { return e as Error; } })())!.message).toMatch(/Approval is blocked/);
 
-    // Quality review (outside the seed): reference verified, flow setpoints / GPV interpretation confirmed.
-    const [ref] = await svc.protocolStore().select<Record<string, any>>("protocol_references", { where: { code: "HPLC-CAL-RECORD-LC2030" } });
-    await svc.saveReference(admin, { id: ref.id, expectedRowVersion: ref.row_version, code: ref.code, title: ref.title, issuer: ref.issuer, referenceType: ref.reference_type, documentNumber: ref.document_number, edition: ref.edition || "2022 record", revision: ref.revision ?? "", publicationDate: "", effectiveDate: "", expiryDate: "", reviewDate: "", sourceUrl: ref.source_url ?? "", documentUrl: "", applicableSection: ref.applicable_section ?? "", applicableClause: "", verificationStatus: "verified", notes: ref.notes ?? "", reason: "Verified by QA (test)" });
-    const c = structuredClone(rev.revision.content);
-    c.sections.forEach(s => s.tests.forEach(t => t.criteria.forEach(cr => {
-      if (cr.verificationStatus !== "verified") {
-        cr.verificationStatus = "verified";
-        cr.verificationEvidence = "Confirmed by the Quality Manager (test)";
-      }
-    })));
-    await svc.saveDraft(editor, { revisionId: revId, expectedRowVersion: rev.revision.rowVersion, content: c, reason: "QM review of notes A and C (test)" });
+    expect(rev.qmApprovalBlockers.join(" ")).toMatch(/Reference HPLC-CAL-RECORD-LC2030 is pending-verification/);
+    expect(rev.qmApprovalBlockers.join(" ")).not.toMatch(/criterion/); // flow / GPV resolved — no pending criteria
+
+    // "Verified" button: Quality Manager only, password-signed, written statement; values never change.
+    const statement = "Criteria, limits and reference checked against HPLC.pdf pages 1-9 (test)";
+    const errOf = async (f: () => Promise<unknown>) => { try { await f(); } catch (e) { return e as Error; } return null; };
+    expect((await errOf(() => svc.verifyForApproval(editor, { revisionId: revId, expectedRowVersion: rev.revision.rowVersion, statement, password: PW })))!.message).toMatch(/quality-manager|not permitted|requires/i);
+    expect((await errOf(() => svc.verifyForApproval(normal, { revisionId: revId, expectedRowVersion: rev.revision.rowVersion, statement, password: PW })))).not.toBeNull();
+    expect((await errOf(() => svc.verifyForApproval(qm, { revisionId: revId, expectedRowVersion: rev.revision.rowVersion, statement, password: "wrong-password" })))!.message).toMatch(/signature failed/);
+    expect((await errOf(() => svc.verifyForApproval(qm, { revisionId: revId, expectedRowVersion: rev.revision.rowVersion, statement: "ok" , password: PW })))!.message).toMatch(/verification statement/);
+    const before = rev.revision.content;
+    const verified = await svc.verifyForApproval(qm, { revisionId: revId, expectedRowVersion: rev.revision.rowVersion, statement, password: PW });
+    expect(verified.verifiedReferences).toEqual(["HPLC-CAL-RECORD-LC2030"]);
+    expect(verified.verifiedCriteria).toEqual([]);
+    expect(verified.remainingBlockers).toEqual([]);
+    const [refRow] = await svc.protocolStore().select<Record<string, any>>("protocol_references", { where: { code: "HPLC-CAL-RECORD-LC2030" } });
+    expect(refRow).toMatchObject({ verification_status: "verified", verified_by_name: "Quality Manager" });
+    expect(refRow.notes).toContain(statement);
+    const audits = await svc.protocolStore().select<Record<string, any>>("protocol_audit_events", { where: { revision_id: revId } });
+    expect(audits.map(a => a.action)).toEqual(expect.arrayContaining(["reference.verified", "revision.sources-verified"]));
+    rev = await svc.getRevision(qm, revId);
+    expect(rev.qmApprovalBlockers).toEqual([]);
+    expect(rev.revision.content.sections).toEqual(before.sections); // nothing in the protocol content changed
+    expect(rev.revision.status).toBe("draft"); // verification never approves
+    expect((await val.activeProtocolForEquipment("hplc")).available).toBe(false);
     rev = await svc.getRevision(qm, revId);
     await svc.transition(qm, { revisionId: revId, expectedRowVersion: rev.revision.rowVersion, action: "approve", password: PW });
 
@@ -362,6 +483,7 @@ describe("HPLC protocol registration, approval, New Validation and PDF (SQLite)"
     expect(stored.evaluation.tests.flatMap(t => t.graphs)).toHaveLength(10);
     // reseeding after approval never touches the approved revision
     expect((await seed.seedHplcProtocol(editor)).outcome).toBe("already-current");
+    expect(await count("protocol_revisions")).toBe(1);
 
     const { doc, tablePages, graphPages } = buildValidationPdf({
       organization: "National Drug Quality Control Laboratory", runNumber: stored.runNumber, protocolNumber: stored.protocolNumber, protocolTitle: stored.protocolTitle,
@@ -378,5 +500,86 @@ describe("HPLC protocol registration, approval, New Validation and PDF (SQLite)"
     expect(text).toContain("Review notes");
     expect(text).toContain("Maintenance status");
     if (process.env.HPLC_PDF_OUT) writeFileSync(process.env.HPLC_PDF_OUT, Buffer.from(doc.output("arraybuffer")));
+  });
+});
+
+describe("HPLC seed upgrade over an APPROVED earlier-seed revision (SQLite)", () => {
+  const db2 = "/tmp/miayar-hplc-upgrade.test.sqlite";
+  beforeAll(async () => {
+    closeLocalDatabase();
+    if (existsSync(db2)) rmSync(db2);
+    process.env.QC_LOCAL_DB_PATH = db2;
+    process.env.QC_STORAGE_MODE = "local";
+    svc.setProtocolStoreForTests(sqliteProtocolStore);
+    admin = await user("admin@hplc2.test", "Admin", "admin");
+    editor = await user("editor@hplc2.test", "Editor", "user");
+    qm = await user("qm@hplc2.test", "Quality Manager", "user");
+    await svc.setDuty(admin, { userId: editor.id, duty: "author", granted: true, reason: "Authorized protocol editor" });
+    await svc.setDuty(admin, { userId: qm.id, duty: "quality-manager", granted: true, reason: "Quality Manager" });
+  });
+  afterAll(() => {
+    svc.setProtocolStoreForTests(null);
+    closeLocalDatabase();
+    if (existsSync(db2)) rmSync(db2);
+    delete process.env.QC_STORAGE_MODE;
+  });
+
+  it("QM verifies the v1 pending criteria with the Verified step (values unchanged), approves; the upgrade then creates a NEW draft and never edits the approved revision", async () => {
+    const created = await seed.seedHplcProtocol(editor);
+    expect(created.outcome).toBe("created");
+    expect(created.equipmentSpecsFilled.length).toBeGreaterThan(0);
+    const revId = created.revisionId!;
+    const v2 = (await svc.getRevision(editor, revId)).revision.content;
+    await writeRawDraft(revId, seedV1Content(v2)); // database state of a v1 deployment
+    let rev = await svc.getRevision(qm, revId);
+    expect(rev.qmApprovalBlockers.join(" ")).toMatch(/hplc_flow_rate\/flow_limit, hplc_gpv\/gpv_limit/);
+    const v1Sections = rev.revision.content.sections;
+
+    const res = await svc.verifyForApproval(qm, { revisionId: revId, expectedRowVersion: rev.revision.rowVersion, statement: "Flow setpoints and GPV interpretation checked against HPLC.pdf p.1-9 (test)", password: PW });
+    expect(res.verifiedCriteria).toEqual(["hplc_flow_rate/flow_limit", "hplc_gpv/gpv_limit"]);
+    expect(res.verifiedReferences).toEqual(["HPLC-CAL-RECORD-LC2030"]);
+    expect(res.remainingBlockers).toEqual([]);
+    rev = await svc.getRevision(qm, revId);
+    const crits = rev.revision.content.sections.flatMap(sx => sx.tests).flatMap(t => t.criteria);
+    const v1Crits = v1Sections.flatMap(sx => sx.tests).flatMap(t => t.criteria);
+    crits.forEach((c, i) => {
+      // only status / evidence change — limits, units, parameters never change
+      expect({ ...c, verificationStatus: v1Crits[i].verificationStatus, verificationEvidence: v1Crits[i].verificationEvidence }).toEqual(v1Crits[i]);
+      expect(c.verificationStatus).toBe("verified");
+    });
+    expect(crits.find(c => c.key === "gpv_limit")!.verificationEvidence).toMatch(/Verified against source by Quality Manager Quality Manager \(\d{4}-\d{2}-\d{2}\)/);
+    // a criterion without a numeric limit is never "verified"
+    const noLimit = structuredClone(rev.revision.content);
+    Object.assign(noLimit.sections.flatMap(sx => sx.tests)[1].criteria[0], { lower: null, verificationStatus: "pending-technical-verification", verificationEvidence: "" });
+    await svc.saveDraft(editor, { revisionId: revId, expectedRowVersion: rev.revision.rowVersion, content: noLimit, reason: "test: limit removed" });
+    rev = await svc.getRevision(qm, revId);
+    const skip = await svc.verifyForApproval(qm, { revisionId: revId, expectedRowVersion: rev.revision.rowVersion, statement: "Second verification pass (test)", password: PW });
+    expect(skip.verifiedCriteria).toEqual([]);
+    expect(skip.skipped.join(" ")).toMatch(/hplc_lamp_energy\/energy_min: numeric limit not configured/);
+    expect(skip.remainingBlockers.join(" ")).toMatch(/not verified/);
+    rev = await svc.getRevision(qm, revId);
+    const restored = structuredClone(rev.revision.content);
+    Object.assign(restored.sections.flatMap(sx => sx.tests)[1].criteria[0], crits.find(c => c.key === "energy_min"));
+    await svc.saveDraft(editor, { revisionId: revId, expectedRowVersion: rev.revision.rowVersion, content: restored, reason: "test: limit restored" });
+    rev = await svc.getRevision(qm, revId);
+    expect(rev.qmApprovalBlockers).toEqual([]);
+    await svc.transition(qm, { revisionId: revId, expectedRowVersion: rev.revision.rowVersion, action: "approve", password: PW });
+    const approvedContent = (await svc.getRevision(editor, revId)).revision.content;
+    expect(approvedContent.identification.description).toContain(HPLC_PREVIOUS_SEED_VERSIONS[0]);
+
+    // Upgrade: approved revisions are never edited — a new Draft revision carries the current content.
+    const up = await seed.seedHplcProtocol(editor);
+    expect(up.outcome).toBe("new-revision");
+    expect(up.revisionNumber).toBe(2);
+    const after = await svc.getRevision(editor, revId);
+    expect(after.revision.status).toBe("released");
+    expect(after.revision.content).toEqual(approvedContent);
+    const draft = await svc.getRevision(editor, up.revisionId!);
+    expect(draft.revision.status).toBe("draft");
+    expect(draft.revision.content.identification.description).toContain(HPLC_SEED_VERSION);
+    expect(draft.revision.content.sections.flatMap(sx => sx.tests)[9].criteria[0]).toMatchObject({ parameter: "rel_dev", unit: "%", tolerance: 2.0 });
+    const active = await val.activeProtocolForEquipment("hplc");
+    expect(active.available && active.revision.revisionNumber).toBe(1); // New Validation keeps the approved revision until the QM approves Rev.02
+    expect((await seed.seedHplcProtocol(editor)).outcome).toBe("already-current");
   });
 });
