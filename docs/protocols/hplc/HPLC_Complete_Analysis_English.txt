@@ -1,0 +1,976 @@
+HPLC CALIBRATION RECORD
+COMPLETE TECHNICAL EXTRACTION AND CALCULATION SPECIFICATION
+Source: HPLC.pdf (9 scanned pages)
+Language: English
+Scope: Source-document extraction only. This file does NOT include a comparison with USA USP.
+
+======================================================================
+1. PURPOSE AND SOURCE-HANDLING NOTES
+======================================================================
+
+This document extracts the instrument details, ten tests, test conditions, required observations, number of readings, acceptance criteria, and calculation equations appearing in HPLC.pdf.
+
+Important source-handling rules:
+- The scanned record contains handwritten entries. Some handwritten values are difficult to read. Unclear values are identified as "verify against the original scan" rather than silently corrected.
+- The summary sheet on PDF page 1 lists Flow Rate Accuracy setpoints as 1.0, 1.5, and 2.0 mL/min. The detailed procedure on PDF page 2 lists 0.5, 1.5, and 2.5 mL/min. For this protocol specification, use 1.0, 1.5, and 2.0 mL/min because the user explicitly instructed that the page 1 values are to be adopted. Preserve the page 2 discrepancy in the source notes.
+- The summary sheet on PDF page 1 appears to contain a contradictory wording for Detector Linearity ("less than 0.99"). The detailed acceptance statement on PDF page 6 says the correlation coefficient should not be less than 0.99. Adopt r >= 0.99, as specifically instructed by the user.
+- The detailed record contains measured results from a historical calibration. These are transcribed as historical observations only; they are not default input values for a new validation run.
+- Do not infer missing readings, missing units, or unclear handwritten preparation quantities.
+- Where the source provides a criterion but not a detailed calculation method, the equation below is identified as the mathematical implementation needed to evaluate that stated criterion.
+
+======================================================================
+2. INSTRUMENT IDENTIFICATION
+======================================================================
+
+Instrument Name: HPLC
+Manufacturer / Make: Shimadzu
+Model: LC 2030 PLUS
+Instrument ID: RLS/QC/HPLC/02
+Calibration Date: 20/08/2022
+Calibration Due Date: 20/02/2023
+
+The document describes a semi-annual calibration record.
+
+Historical summary remark on PDF page 1:
+"The Instrument, Semi Annual Calibration successfully completed. Hence the instrument shall be used for regular analysis."
+
+The historical calibration date and due date must not be reused as dates for a new calibration event.
+
+======================================================================
+3. SUMMARY OF THE TEN TESTS
+======================================================================
+
+TEST 1 — FLOW RATE ACCURACY
+- Adopted setpoints: 1.0, 1.5, and 2.0 mL/min (PDF page 1, per user instruction).
+- Collected volume: 10.0 mL at each setpoint.
+- Number of observations: 3 time measurements (one per setpoint).
+- Acceptance criterion: within ±1.0% of the set value.
+
+TEST 2 — LAMP REFERENCE ENERGY
+- Wavelength: 254 nm.
+- Number of observations: 1 reference-energy reading.
+- Acceptance criterion: NLT 400 mV.
+
+TEST 3 — UV LAMP HOURS
+- Number of observations: 1 lamp-hour reading.
+- Source recommendation: minimum 2000 hours to replace the UV lamps.
+- This is a maintenance/replacement recommendation, not a conventional analytical measurement limit.
+
+TEST 4 — HPLC COLUMN OVEN TEMPERATURE
+- Setpoints: 25.0, 40.0, 50.0, and 60.0 °C.
+- At each setpoint, record thermometer temperature and instrument-display temperature.
+- Number of setpoints: 4.
+- Number of observed temperature values: 8 (4 thermometer + 4 display readings).
+- Acceptance criterion: within ±2.0 °C of the set temperature. The detailed record also refers to the set temperature and digital thermometer.
+
+TEST 5 — SYSTEM AND INJECTOR PRECISION
+- Number of injections: 5.
+- Record Retention Time (RT) and Caffeine Peak Area for every injection.
+- Number of raw results: 10 (5 RT values + 5 peak-area values).
+- Acceptance criteria:
+  - RT %RSD: NMT 1.0%.
+  - Peak-area %RSD: NMT 2.0%.
+
+TEST 6 — WAVELENGTH ACCURACY
+- Standard solution: 10 ppm.
+- Record chromatographic area response at the wavelength points shown in the source table.
+- The table spans 267–277 nm; this corresponds to 11 wavelength points if measured at 1 nm intervals.
+- Number of response values: 11.
+- Acceptance criterion: maximum absorbance/response should be at 272 ±2 nm (acceptable maximum-response wavelength: 270–274 nm).
+
+TEST 7 — DETECTOR LINEARITY
+- Caffeine standard concentration levels: 10, 20, 30, 40, and 50 ppm.
+- Number of concentration levels: 5.
+- Record one Caffeine peak-area result for each concentration.
+- Number of response values: 5.
+- Acceptance criterion adopted from detailed PDF page 6: correlation coefficient r >= 0.99.
+
+TEST 8 — AUTO-SAMPLER LINEARITY
+- Injector capacity is handwritten/printed as 100 µL in the detailed procedure; verify the exact instrument configuration against the original record/manual.
+- Injection volumes: 5, 10, 20, 50, 80, and 100 µL.
+- Number of injection-volume levels: 6.
+- Record one Caffeine peak-area result for each volume.
+- Number of response values: 6.
+- Acceptance criterion: correlation coefficient r >= 0.99.
+
+TEST 9 — CARRYOVER TEST
+- Solutions: Carryover Solution and Blank (Water).
+- Record Caffeine area in the blank and Caffeine area in the carryover solution.
+- Number of required area observations: 2.
+- Acceptance criterion: Carryover NMT 0.01%.
+
+TEST 10 — GRADIENT PROPORTIONING VALVE
+- Flow rate: 1.0 mL/min.
+- Pump A: Water.
+- Pumps B, C, and D: Acetone (the handwritten concentration/description is not fully clear; verify against the original scan and approved method).
+- Pump combinations:
+  1. Pump A & B
+  2. Pump A & C
+  3. Pump A & D
+- Setpoints for each combination: 10%, 50%, and 90%.
+- Total measurement points: 9.
+- Acceptance criterion: setting value ±2.0.
+
+======================================================================
+4. DETAILED TEST PROCEDURES, INPUT FIELDS, AND CALCULATIONS
+======================================================================
+
+----------------------------------------------------------------------
+TEST 1 — FLOW RATE ACCURACY
+----------------------------------------------------------------------
+
+Source location:
+- Summary and selected setpoints: PDF page 1.
+- Detailed procedure and alternative setpoints: PDF page 2.
+
+Purpose:
+To verify the actual mobile-phase flow delivered by the pump by collecting a known volume and measuring the time required.
+
+Adopted set flow rates:
+1. 1.0 mL/min
+2. 1.5 mL/min
+3. 2.0 mL/min
+
+Source discrepancy:
+The detailed procedure on PDF page 2 instead states 0.5, 1.5, and 2.5 mL/min. The page 1 values are adopted here as explicitly requested by the user.
+
+Procedure described:
+- Use a 10.0 mL Class A volumetric flask.
+- Measure the time required to collect 10.0 mL at each set flow rate.
+- Record the time in minutes.
+
+Required input fields for each of the three setpoints:
+- Set Flow Rate (mL/min)
+- Collection Volume (mL); source value: 10.0 mL
+- Time Taken (min)
+
+Calculated fields:
+- Actual Flow Rate (mL/min)
+- Deviation (mL/min)
+- Deviation (%)
+- Absolute Deviation (%)
+- Result (Complies / Does Not Comply)
+
+Equations:
+
+Actual Flow Rate:
+Actual Flow = Collected Volume / Time Taken
+
+For the source volume:
+Actual Flow = 10.0 / Time Taken
+
+Signed Deviation:
+Deviation = Actual Flow - Set Flow Rate
+
+Percentage Deviation:
+Deviation (%) = ((Actual Flow - Set Flow Rate) / Set Flow Rate) × 100
+
+Absolute Percentage Deviation:
+Absolute Deviation (%) = ABS(Deviation (%))
+
+Acceptance:
+-1.0% <= Deviation (%) <= +1.0%
+
+Equivalent rule:
+ABS(Deviation (%)) <= 1.0%
+
+Data validation:
+- Time Taken must be greater than zero.
+- Set Flow Rate must be greater than zero.
+- Collected Volume must be greater than zero.
+- Do not calculate if a required input is missing or invalid.
+
+----------------------------------------------------------------------
+TEST 2 — LAMP REFERENCE ENERGY
+----------------------------------------------------------------------
+
+Source location: PDF page 3. Summary also appears on PDF page 1.
+
+Purpose:
+To record/check the UV lamp reference energy.
+
+Source wavelength:
+254 nm.
+
+Required input fields:
+- Wavelength (nm): 254
+- Reference Energy (mV)
+
+Number of readings:
+1.
+
+Acceptance criterion:
+NLT 400 mV.
+
+Evaluation:
+Pass if Reference Energy >= 400 mV.
+Fail if Reference Energy < 400 mV.
+
+No calculation formula is specified in the source; the recorded value is compared directly with the acceptance limit.
+
+----------------------------------------------------------------------
+TEST 3 — UV LAMP HOURS
+----------------------------------------------------------------------
+
+Source location: PDF page 3. Summary also appears on PDF page 1.
+
+Purpose:
+To record accumulated UV lamp operating hours.
+
+Required input field:
+- UV Lamp Hours (h)
+
+Number of readings:
+1.
+
+Source recommendation:
+"Minimum 2000 hrs to replace the UV lamps."
+
+Operational interpretation for software display:
+- Below 2000 h: below the replacement threshold stated in the record.
+- At or above 2000 h: display a maintenance/replacement review alert.
+
+Important:
+The source describes this as a recommendation for lamp replacement. Do not silently convert it into a calibration acceptance criterion or automatically declare the instrument calibration failed solely because the hour count reaches 2000.
+
+----------------------------------------------------------------------
+TEST 4 — HPLC COLUMN OVEN TEMPERATURE
+----------------------------------------------------------------------
+
+Source location: PDF page 3. Summary also appears on PDF page 1.
+
+Purpose:
+To verify column oven temperature at multiple setpoints using a thermometer and the instrument display.
+
+Set temperatures:
+1. 25.0 °C
+2. 40.0 °C
+3. 50.0 °C
+4. 60.0 °C
+
+Required readings at each setpoint:
+- Observed Temperature in Thermometer (°C)
+- Observed Temperature in Instrument Display (°C)
+
+Number of readings:
+- 4 setpoints.
+- 2 readings per setpoint.
+- 8 observed temperature values in total.
+
+Required fields for each setpoint:
+- Set Temperature (°C)
+- Thermometer Reading (°C)
+- Instrument Display Reading (°C)
+
+Calculated fields:
+- Thermometer Deviation (°C)
+- Display Deviation (°C)
+- Display-to-Thermometer Difference (°C), as an additional informative comparison.
+
+Equations:
+
+Thermometer Deviation:
+Thermometer Deviation = Thermometer Reading - Set Temperature
+
+Display Deviation:
+Display Deviation = Instrument Display Reading - Set Temperature
+
+Display-to-Thermometer Difference:
+Difference = Instrument Display Reading - Thermometer Reading
+
+Absolute deviations:
+Absolute Thermometer Deviation = ABS(Thermometer Deviation)
+Absolute Display Deviation = ABS(Display Deviation)
+
+Acceptance criterion:
+The source states that the temperature should be within ±2.0 °C of the set temperature. The detailed page also refers to the set temperature and digital thermometer.
+
+Software evaluation:
+- Check the thermometer reading against the setpoint using ±2.0 °C.
+- Check the instrument display reading against the setpoint using ±2.0 °C, while retaining the source wording.
+- Show the display-to-thermometer difference separately.
+- The source does not specify a separate numerical acceptance limit for the difference between the display and thermometer; do not invent one.
+
+----------------------------------------------------------------------
+TEST 5 — SYSTEM AND INJECTOR PRECISION
+----------------------------------------------------------------------
+
+Source location: PDF page 4. Summary also appears on PDF page 1.
+
+Purpose:
+To evaluate repeatability of the chromatographic system and injector by five replicate injections of a Caffeine standard solution.
+
+Test conditions transcribed from the record:
+- Mobile Phase: 750 mL DI Water + 250 mL Methanol.
+- Preparation: mix properly and sonicate for 15 minutes.
+- Column: 25 cm × 4.6 mm, C18.
+- Flow Rate: 1.5 mL/min.
+- Wavelength: 272 nm.
+- Injection Volume: 20 µL.
+- Run Time: 12 minutes.
+- Standard: Caffeine.
+- Standard Stock Solution: 1000 ppm.
+- Working Standard Solution: 10 ppm.
+- Number of injections: 5.
+
+Standard preparation described:
+- Weigh 50.0 mg of Caffeine into a 50 mL volumetric flask.
+- Dissolve and dilute to volume with water.
+- The record then states: dilute 1 mL of standard stock solution to 100 mL with water to prepare the 10 ppm standard.
+
+Note:
+The handwritten batch number/grade details are not reliably legible. Preserve them as source metadata only if verified from the original scan.
+
+Procedure:
+Inject the 10 ppm standard solution in five replicates and record the chromatograms.
+
+Required raw input fields for each injection:
+- Injection Number (1–5)
+- Retention Time of Caffeine (RT)
+- Peak Area of Caffeine
+
+Number of raw values:
+- 5 RT values.
+- 5 Peak Area values.
+- 10 raw numerical observations in total.
+
+Statistical calculations:
+Calculate the statistics separately for RT and Peak Area.
+
+Mean:
+Mean = SUM(x_i) / n
+
+Where:
+- x_i = each individual result.
+- n = number of results (n = 5).
+
+Individual Deviation:
+Deviation_i = x_i - Mean
+
+Absolute Individual Deviation:
+Absolute Deviation_i = ABS(x_i - Mean)
+
+Sample Standard Deviation:
+SD = SQRT(SUM((x_i - Mean)^2) / (n - 1))
+
+Relative Standard Deviation:
+RSD (%) = (SD / Mean) × 100
+
+For RT:
+- Mean RT
+- RT SD
+- RT RSD (%)
+- Individual RT deviation values
+
+For Peak Area:
+- Mean Peak Area
+- Peak Area SD
+- Peak Area RSD (%)
+- Individual Peak Area deviation values
+
+Acceptance criteria:
+- Retention Time %RSD: NMT 1.0%.
+- Caffeine Peak Area %RSD: NMT 2.0%.
+
+Pass/Fail:
+- RT criterion passes if RT RSD <= 1.0%.
+- Peak Area criterion passes if Peak Area RSD <= 2.0%.
+- Overall test passes only if both criteria pass.
+
+The source includes historical example values and calculated statistics, but these must not be loaded as default results for a new validation. The raw values should be entered from the new chromatographic run.
+
+----------------------------------------------------------------------
+TEST 6 — WAVELENGTH ACCURACY
+----------------------------------------------------------------------
+
+Source location: PDF page 5. Summary also appears on PDF page 1.
+
+Purpose:
+To identify the wavelength at which the Caffeine standard produces its maximum chromatographic area response.
+
+Procedure:
+- Inject the 10 ppm standard solution into the chromatograph.
+- Record the chromatograms/area response at the wavelength points listed in the source record.
+
+Wavelength points:
+267, 268, 269, 270, 271, 272, 273, 274, 275, 276, and 277 nm.
+
+Number of points:
+11.
+
+Required input fields for each point:
+- Wavelength (nm)
+- Area Response
+
+Number of raw response values:
+11.
+
+Calculations:
+
+Maximum Area Response:
+Maximum Response = MAX(A_1, A_2, ..., A_11)
+
+Maximum Response Wavelength:
+Maximum Wavelength = wavelength corresponding to Maximum Response
+
+Acceptance criterion:
+Maximum absorbance/response should be at 272 ±2 nm.
+
+Acceptable interval:
+270 nm <= Maximum Response Wavelength <= 274 nm.
+
+The software should display all wavelength-response pairs, identify the maximum response, and show the wavelength at which it occurred.
+
+If two or more wavelengths have exactly the same maximum response, display all tied wavelengths and flag the tie for review rather than silently selecting one.
+
+----------------------------------------------------------------------
+TEST 7 — DETECTOR LINEARITY
+----------------------------------------------------------------------
+
+Source location: PDF pages 5 and 6. Summary also appears on PDF page 1.
+
+Purpose:
+To evaluate the relationship between Caffeine concentration and detector peak area.
+
+Standard stock concentration:
+1000 ppm.
+
+Concentration levels:
+1. 10 ppm
+2. 20 ppm
+3. 30 ppm
+4. 40 ppm
+5. 50 ppm
+
+Number of concentration levels:
+5.
+
+Preparation entries visible in the source:
+- 10 ppm: dilute 1 mL stock to 100 mL.
+- 20 ppm: dilute 2 mL stock to 100 mL.
+- 30 ppm: dilute 3 mL stock to 100 mL.
+- 40 ppm: dilute 4 mL stock to 100 mL.
+- 50 ppm: dilute 5 mL stock to 100 mL.
+
+Required input fields for each level:
+- Concentration (ppm)
+- Caffeine Peak Area
+
+Number of response values:
+5 peak-area values, one at each concentration.
+
+Required calculations:
+
+Pearson Correlation Coefficient (r):
+
+r = SUM((x_i - MeanX)(y_i - MeanY)) /
+    SQRT(SUM((x_i - MeanX)^2) × SUM((y_i - MeanY)^2))
+
+Where:
+- x_i = concentration.
+- y_i = measured peak area.
+- MeanX = mean concentration.
+- MeanY = mean peak area.
+
+Linear Regression:
+y = m x + b
+
+Where:
+- m = slope.
+- b = y-intercept.
+- x = concentration.
+- y = predicted peak area.
+
+Slope:
+m = SUM((x_i - MeanX)(y_i - MeanY)) /
+    SUM((x_i - MeanX)^2)
+
+Intercept:
+b = MeanY - (m × MeanX)
+
+Coefficient of Determination:
+R² = 1 - [SUM((y_i - yhat_i)^2) / SUM((y_i - MeanY)^2)]
+
+Where yhat_i is the predicted response from the regression equation.
+
+Additional display values:
+- Pearson r
+- R²
+- Slope
+- Intercept
+- Regression equation
+- Actual peak area at each concentration
+- Predicted peak area at each concentration
+- Residual at each concentration (Actual - Predicted)
+
+Acceptance criterion:
+The detailed acceptance statement on PDF page 6 says:
+Correlation coefficient should not be less than 0.99.
+
+Adopted acceptance rule:
+r >= 0.99.
+
+Important source discrepancy:
+The summary table on PDF page 1 appears to say "less than 0.99", while the detailed procedure on page 6 says "should not be less than 0.99". Use r >= 0.99 as instructed by the user and retain this discrepancy in the source notes.
+
+Do not replace r with R². Display both separately. The source acceptance criterion is expressed as a correlation coefficient, i.e. r.
+
+----------------------------------------------------------------------
+TEST 8 — AUTO-SAMPLER LINEARITY
+----------------------------------------------------------------------
+
+Source location: PDF page 6. Summary also appears on PDF page 1.
+
+Purpose:
+To evaluate the relationship between injection volume and Caffeine peak area.
+
+Source conditions:
+Mobile phase, column, flow rate, wavelength, and standard solution are the same as those used in System and Injector Precision.
+
+The source refers to a 100 µL injector capacity in the detailed procedure. Verify the exact capacity/configuration against the instrument documentation before treating it as a fixed equipment specification.
+
+Injection volumes:
+1. 5 µL
+2. 10 µL
+3. 20 µL
+4. 50 µL
+5. 80 µL
+6. 100 µL
+
+Procedure:
+Inject each volume from separate vials and record the chromatogram.
+
+Required input fields for each volume:
+- Injection Volume (µL)
+- Caffeine Peak Area
+
+Number of response values:
+6.
+
+Calculations:
+
+Pearson Correlation Coefficient:
+Use the same Pearson r equation as in Detector Linearity, with:
+- x_i = injection volume (µL).
+- y_i = Caffeine peak area.
+
+Linear Regression:
+y = m x + b
+
+Slope:
+m = SUM((x_i - MeanX)(y_i - MeanY)) /
+    SUM((x_i - MeanX)^2)
+
+Intercept:
+b = MeanY - (m × MeanX)
+
+Coefficient of Determination:
+R² = 1 - [SUM((y_i - yhat_i)^2) / SUM((y_i - MeanY)^2)]
+
+Additional display values:
+- Pearson r
+- R²
+- Slope
+- Intercept
+- Regression equation
+- Actual and predicted peak areas
+- Residuals
+
+Acceptance criterion:
+Correlation coefficient should not be less than 0.99.
+
+Acceptance rule:
+r >= 0.99.
+
+----------------------------------------------------------------------
+TEST 9 — CARRYOVER TEST
+----------------------------------------------------------------------
+
+Source location: PDF page 7. Summary also appears on PDF page 1.
+
+Purpose:
+To assess residual Caffeine response in a blank injection following injection of the carryover solution.
+
+Solutions:
+- Carryover Solution
+- Blank Solution (Water)
+
+Carryover solution preparation:
+The handwritten record appears to describe weighing approximately 100 mg of Caffeine into a 10 mL volumetric flask, dissolving, and diluting to volume with water. The exact handwritten quantity and batch/grade details are not sufficiently clear for unqualified transcription. Verify the original scan and approved laboratory procedure before making this a controlled preparation instruction.
+
+Procedure:
+- Inject the carryover solution.
+- Inject the blank (water).
+- Record the chromatograms.
+
+Required input fields:
+- Area of Caffeine in Blank Solution
+- Area of Caffeine in Carryover Solution
+
+Number of raw area readings:
+2.
+
+Calculation:
+
+Carryover (%):
+Carryover (%) = (Area_Blank / Area_Carryover_Solution) × 100
+
+Acceptance criterion:
+Carryover should not be more than 0.01%.
+
+Acceptance rule:
+Carryover (%) <= 0.01%.
+
+Data validation:
+- Area_Carryover_Solution must be greater than zero.
+- Both areas must be valid numeric values.
+- Do not divide by zero.
+- Do not calculate if either required value is missing.
+
+----------------------------------------------------------------------
+TEST 10 — GRADIENT PROPORTIONING VALVE
+----------------------------------------------------------------------
+
+Source location: PDF pages 7, 8, and 9. Summary also appears on PDF page 1.
+
+Purpose:
+To assess the proportioning performance of the gradient valve for three pump combinations at three percentage settings.
+
+Conditions visible in the source:
+- Flow Rate: 1.0 mL/min.
+- Pump A: Water.
+- Pumps B, C, and D: Acetone (the handwritten concentration/description is unclear; verify against the original record).
+- Wavelength shown in the handwritten procedure appears to be 254 nm; verify the original record before fixing it as a mandatory condition.
+
+Pump combinations:
+1. Pump A & B
+2. Pump A & C
+3. Pump A & D
+
+Setpoints for each pump combination:
+- 10%
+- 50%
+- 90%
+
+Total measurement points:
+3 combinations × 3 setpoints = 9.
+
+For each point, the source calculation requires signal heights at:
+- 0% setting
+- The selected setting (10%, 50%, or 90%)
+- 100% setting
+
+Required input fields for each of the 9 points:
+- Pump Combination
+- Setting Value (%)
+- Height at 0%
+- Height at Selected Setting
+- Height at 100%
+
+Calculated fields:
+- Actual Concentration (%)
+- Signed Deviation (percentage points)
+- Absolute Deviation (percentage points)
+- Result
+
+Actual Concentration equation:
+
+Actual Concentration (%) =
+[(Height at Selected Setting - Height at 0%) /
+ (Height at 100% - Height at 0%)] × 100
+
+Signed Deviation:
+Deviation = Actual Concentration (%) - Setting Value (%)
+
+Absolute Deviation:
+Absolute Deviation = ABS(Deviation)
+
+Acceptance criterion:
+Setting value ±2.0.
+
+Operational evaluation:
+ABS(Deviation) <= 2.0
+
+Interpretation note:
+The source does not clearly state whether ±2.0 means percentage points or relative percent. The equation naturally produces a difference in percentage points. The software should label the result as percentage-point deviation and mark this interpretation for technical confirmation.
+
+Data validation:
+- Height at 100% must not equal Height at 0%.
+- Denominator must not be zero.
+- All height inputs must be numeric.
+- All nine points must be recorded before the test can be declared complete.
+
+======================================================================
+5. CONSOLIDATED CALCULATION FORMULAS
+======================================================================
+
+The following formulas cover the calculations required by the ten tests. Use full-precision raw values for calculations; apply rounding only to displayed results.
+
+A. Mean (Arithmetic Average)
+
+Mean = SUM(x_i) / n
+
+B. Individual Deviation from Mean
+
+Deviation_i = x_i - Mean
+
+C. Absolute Deviation
+
+Absolute Deviation_i = ABS(x_i - Mean)
+
+D. Sample Standard Deviation
+
+SD = SQRT(SUM((x_i - Mean)^2) / (n - 1))
+
+E. Relative Standard Deviation
+
+RSD (%) = (SD / Mean) × 100
+
+F. Actual Flow Rate
+
+Actual Flow = Collected Volume / Time Taken
+
+G. Flow Rate Percentage Deviation
+
+Deviation (%) = ((Actual Flow - Set Flow) / Set Flow) × 100
+
+H. Absolute Percentage Error
+
+Absolute Error (%) = ABS(((Measured Value - Set Value) / Set Value) × 100)
+
+I. Temperature Deviation
+
+Temperature Deviation = Observed Temperature - Set Temperature
+
+J. Pearson Correlation Coefficient
+
+r = SUM((x_i - MeanX)(y_i - MeanY)) /
+    SQRT(SUM((x_i - MeanX)^2) × SUM((y_i - MeanY)^2))
+
+K. Linear Regression
+
+y = m x + b
+
+L. Regression Slope
+
+m = SUM((x_i - MeanX)(y_i - MeanY)) /
+    SUM((x_i - MeanX)^2)
+
+M. Regression Intercept
+
+b = MeanY - (m × MeanX)
+
+N. Coefficient of Determination
+
+R² = 1 - [SUM((y_i - yhat_i)^2) / SUM((y_i - MeanY)^2)]
+
+O. Residual
+
+Residual_i = Actual y_i - Predicted y_i
+
+P. Carryover Percentage
+
+Carryover (%) = (Blank Area / Carryover Solution Area) × 100
+
+Q. Gradient Actual Concentration
+
+Actual Concentration (%) =
+[(Height_Setting - Height_0) / (Height_100 - Height_0)] × 100
+
+R. Gradient Deviation
+
+Deviation = Actual Concentration (%) - Setpoint (%)
+
+S. Maximum Response
+
+Maximum Response = MAX(all recorded response values)
+
+T. Maximum-Response Wavelength
+
+Maximum-Response Wavelength = wavelength associated with Maximum Response
+
+Calculation safeguards:
+- Do not divide by zero.
+- Do not calculate statistics with missing required observations.
+- For sample SD, require at least two observations.
+- For RSD, the mean must not be zero.
+- For correlation, both x and y must contain at least two valid paired values and must not have zero variance.
+- For regression, the x values must not all be identical.
+- Preserve raw input values and calculation precision.
+- Show units with every measured or calculated value.
+- Display signed deviation as well as absolute deviation where applicable.
+- A missing or invalid required value must not be interpreted as a passing result.
+
+======================================================================
+6. REQUIRED DATA-ENTRY COUNTS
+======================================================================
+
+Test 1 — Flow Rate Accuracy:
+- 3 setpoints.
+- 3 time readings.
+- One 10.0 mL collection volume associated with each point (can be prefilled as the source-defined volume).
+
+Test 2 — Lamp Reference Energy:
+- 1 reference-energy reading.
+
+Test 3 — UV Lamp Hours:
+- 1 lamp-hour reading.
+
+Test 4 — Column Oven Temperature:
+- 4 setpoints.
+- 4 thermometer readings.
+- 4 instrument-display readings.
+- 8 observed temperature values total.
+
+Test 5 — System and Injector Precision:
+- 5 injections.
+- 5 RT readings.
+- 5 peak-area readings.
+- 10 raw numerical values total.
+
+Test 6 — Wavelength Accuracy:
+- 11 wavelength-response pairs.
+- 11 area-response readings.
+
+Test 7 — Detector Linearity:
+- 5 concentration-response pairs.
+- 5 peak-area readings.
+
+Test 8 — Auto-Sampler Linearity:
+- 6 injection-volume-response pairs.
+- 6 peak-area readings.
+
+Test 9 — Carryover:
+- 2 area readings.
+
+Test 10 — Gradient Proportioning Valve:
+- 3 pump combinations.
+- 3 setpoints per combination.
+- 9 test points.
+- Each test point requires 3 height readings (0%, selected setting, 100%).
+- Total height observations: 27.
+
+======================================================================
+7. HISTORICAL RESULTS VISIBLE IN THE SUMMARY RECORD
+======================================================================
+
+The following values are visible in the historical summary on PDF page 1. They are transcribed for reference only and must not be preloaded as new validation results.
+
+1. Flow Rate Accuracy:
+- Setpoint/result entries shown: 1.0 mL, 1.5 mL, 2.0 mL (the summary appears to omit or abbreviate the flow-rate unit in the table).
+
+2. Lamp Reference Energy:
+- Historical result: 1517 mV.
+- Acceptance: NLT 400 mV.
+
+3. UV Lamp Hours:
+- Historical result: 763 hours.
+- Replacement recommendation: minimum 2000 hours.
+
+4. Column Oven Temperature:
+- 25.0 °C setpoint → 25.0 °C result.
+- 40.0 °C setpoint → 40.1 °C result.
+- 50.0 °C setpoint → 50.0 °C result.
+- 60.0 °C setpoint → 59.9 °C result.
+
+5. System and Injector Precision:
+- Historical RT %RSD: 0.2%.
+- Historical Area %RSD: 0.1%.
+
+6. Wavelength Accuracy:
+- Historical maximum wavelength: 274 nm.
+
+7. Detector Linearity:
+- Historical correlation result shown: 1.00.
+
+8. Auto-Sampler Linearity:
+- Historical correlation result shown: 1.00.
+
+9. Carryover:
+- Historical result shown: 0.0002%.
+
+10. Gradient Proportioning Valve:
+- Pump A & B: 10% → 10.5%; 50% → 51.1%; 90% → 90.8%.
+- Pump A & C: 10% → 9.8%; 50% → 50.5%; 90% → 90.1%.
+- Pump A & D: 10% → 10.3%; 50% → 50.5%; 90% → 90.4%.
+
+Historical approval/remarks are not a substitute for a new approval of a new protocol revision.
+
+======================================================================
+8. SOURCE ITEMS REQUIRING VERIFICATION BEFORE CONTROLLED USE
+======================================================================
+
+1. Flow Rate setpoints:
+- Page 1: 1.0, 1.5, 2.0 mL/min.
+- Page 2: 0.5, 1.5, 2.5 mL/min.
+- Adopt page 1 as instructed, but retain and document the discrepancy.
+
+2. Detector Linearity wording:
+- Page 1 summary appears to say "less than 0.99".
+- Page 6 detailed acceptance says "should not be less than 0.99".
+- Adopt r >= 0.99 as instructed.
+
+3. Mobile phase and preparation details:
+- Page 4 appears to specify 750 mL DI Water + 250 mL Methanol and sonication for 15 minutes.
+- Confirm the handwritten text and the exact preparation before controlled implementation.
+
+4. Standard stock preparation:
+- Page 4 appears to specify 50.0 mg Caffeine in a 50 mL volumetric flask for 1000 ppm.
+- Confirm the handwritten batch number and grade.
+
+5. Working standard preparation:
+- Page 4 specifies 1 mL of stock diluted to 100 mL for 10 ppm.
+
+6. Detector linearity preparation:
+- Page 5 lists the five concentration levels and stock dilution volumes. Confirm any unclear handwritten entries against the scan.
+
+7. Carryover solution:
+- Page 7 handwritten Caffeine mass appears to be approximately 100 mg in a 10 mL volumetric flask. Verify before using as a controlled preparation instruction.
+
+8. Gradient mobile phase:
+- Page 7 appears to state Pump A: Water and Pumps B/C/D: Acetone. Confirm any unclear handwritten concentration or composition notation.
+
+9. Gradient wavelength:
+- The handwritten wavelength appears to be 254 nm. Verify before treating it as mandatory.
+
+10. Gradient acceptance:
+- "Setting value ±2.0" is stated, but the source does not explicitly define whether the deviation is percentage points or relative percent. Confirm the interpretation.
+
+11. Auto-sampler capacity:
+- The procedure refers to 100 µL. Confirm the actual configured injector capacity and compatibility of all listed injection volumes.
+
+12. Historical test values:
+- Values in the old calibration record are historical observations. Do not use them as defaults in new validation forms.
+
+======================================================================
+9. PROTOCOL IMPLEMENTATION SUMMARY
+======================================================================
+
+The HPLC protocol described in the source consists of ten tests:
+
+1. Flow Rate Accuracy
+2. Lamp Reference Energy
+3. UV Lamp Hours
+4. HPLC Column Oven Temperature
+5. System and Injector Precision
+6. Wavelength Accuracy
+7. Detector Linearity
+8. Auto-Sampler Linearity
+9. Carryover Test
+10. Gradient Proportioning Valve
+
+The application should provide:
+- Instrument identification fields.
+- The exact test-specific input fields described above.
+- The required number of readings for each test.
+- Automatic calculations for all applicable statistics and performance metrics.
+- Acceptance checks using the criteria stated in this document.
+- Individual test results and an overall protocol result.
+- Clear display of raw values, calculated values, units, signed deviations, absolute deviations, and Pass/Fail status.
+- Validation against missing values, invalid units, zero denominators, and insufficient data.
+- A visible source-verification status for every item identified in Section 8.
+- Preservation of raw values and full calculation precision.
+
+No new acceptance limit should be invented to fill a gap in the source. Where the source is unclear, retain a verification flag and require technical review before controlled approval.
+
+END OF DOCUMENT

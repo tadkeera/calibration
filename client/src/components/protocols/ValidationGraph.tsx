@@ -9,6 +9,18 @@ import type { GraphData } from "@shared/protocols/graphs";
 import { fmt } from "@shared/protocols/graphs";
 
 const COLORS = ["#0C5A4C", "#B4532A", "#3B5B8C", "#7A4E9C"];
+const MAX_COLOR = "#C81E1E";
+/** Points series get their own colour; a "(connected)" line reuses the colour of its points; other lines (identity / regression) a distinct one. */
+export function seriesColor(graph: GraphData, index: number) {
+  const s = graph.series[index];
+  if (s.kind === "line" && s.name.endsWith("(connected)")) {
+    const base = graph.series.findIndex(x => x.name === s.name.replace(/ \(connected\)$/, ""));
+    if (base >= 0) return seriesColor(graph, base);
+  }
+  const pointsBefore = graph.series.slice(0, index).filter(x => x.kind === "points" && !x.name.startsWith("Maximum")).length;
+  if (s.kind === "points") return COLORS[pointsBefore % COLORS.length];
+  return s.name.startsWith("Ideal") ? "#6B7280" : COLORS[(pointsBefore + 1) % COLORS.length];
+}
 const GUIDE_COLORS: Record<string, string> = { Zero: "#6B7280", Mean: "#0C5A4C", Reference: "#B4532A" };
 
 export function ValidationGraph({ graph, height = 300 }: { graph: GraphData; height?: number }) {
@@ -26,13 +38,15 @@ export function ValidationGraph({ graph, height = 300 }: { graph: GraphData; hei
             {graph.guides.map(g => (
               <ReferenceLine key={g.name} y={g.y} stroke={GUIDE_COLORS[g.name] ?? "#9CA3AF"} strokeDasharray={g.name.includes("SD") ? "4 4" : "6 3"} label={{ value: `${g.name} ${fmt(g.y)}`, position: "right", fontSize: 10 }} />
             ))}
-            {graph.series.map((s, i) =>
-              s.kind === "line" ? (
-                <Scatter key={s.name} name={s.name} data={s.points} line={{ stroke: COLORS[(i + 1) % COLORS.length], strokeWidth: 1.6 }} shape={() => <g />} legendType="line" fill={COLORS[(i + 1) % COLORS.length]} isAnimationActive={false} />
+            {graph.series.map((s, i) => {
+              const color = seriesColor(graph, i);
+              if (s.name.startsWith("Maximum")) return <Scatter key={s.name} name={s.name} data={s.points} fill={MAX_COLOR} shape="star" isAnimationActive={false} />;
+              return s.kind === "line" ? (
+                <Scatter key={s.name} name={s.name} data={s.points} line={{ stroke: color, strokeWidth: 1.6, strokeDasharray: s.name.startsWith("Ideal") ? "5 4" : undefined }} shape={() => <g />} legendType={s.name.endsWith("(connected)") ? "none" : "line"} fill={color} isAnimationActive={false} />
               ) : (
-                <Scatter key={s.name} name={s.name} data={s.points} fill={COLORS[i % COLORS.length]} isAnimationActive={false} />
-              )
-            )}
+                <Scatter key={s.name} name={s.name} data={s.points} fill={color} isAnimationActive={false} />
+              );
+            })}
           </ScatterChart>
         </ResponsiveContainer>
       </div>

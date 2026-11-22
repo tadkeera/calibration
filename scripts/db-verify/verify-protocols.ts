@@ -22,6 +22,8 @@ import { fileURLToPath } from "node:url";
 import * as svc from "../../server/protocols/service";
 import * as wf from "../../server/protocols/workflowService";
 import * as val from "../../server/protocols/validationService";
+import * as seedHplc from "../../server/protocols/hplcSeed";
+import { HPLC_PROTOCOL_NUMBER, HPLC_TEST_KEYS } from "../../shared/protocols/hplcLc2030";
 import { toRpcPayload } from "../../server/protocols/supabaseStore";
 import { PROTOCOL_TABLES, PROTOCOL_WORKFLOW_TABLE_NAMES, ProtocolConflictError, assertColumns, type ProtocolStore, type ProtocolTable, type Row, type SelectOptions } from "../../server/protocols/tables";
 
@@ -380,6 +382,18 @@ try {
   const again4 = await val.getValidation(rec4.runId);
   ok("PG v4: historical validation unchanged by the new approved revision", again4.revisionNumber === 1 && isDeepStrictEqual(again4.evaluation, got4.evaluation) && again4.revisionStatusNow === "superseded");
   await rejects("DB v4: approved revision content immutable", () => q(`update protocol_revisions set content = '{}'::jsonb where id = $1`, [p4.revisionId]), /immutable|editable/);
+
+  // ---- HPLC protocol from HPLC.pdf: automatic, idempotent registration in PostgreSQL (Draft only) ----
+  const h1 = await seedHplc.seedHplcProtocol(users.author);
+  const h2 = await seedHplc.seedHplcProtocol(users.author);
+  await val.protocolBoard(users.author);
+  const hp = (await q(`select id, protocol_number, status, instrument_key from protocols where protocol_number = $1`, [HPLC_PROTOCOL_NUMBER])).rows;
+  const hr = hp[0] ? (await q(`select revision_number, status, content from protocol_revisions where protocol_id = $1`, [hp[0].id])).rows : [];
+  ok("PG HPLC: registered once as Draft Rev.01 linked to the existing HPLC (QC-I-104)", h1.outcome === "created" && h2.outcome === "already-current" && hp.length === 1 && hr.length === 1 && hr[0].revision_number === 1 && hr[0].status === "draft" && hr[0].content.equipmentLinks[0]?.instrumentId === "QC-I-104", JSON.stringify({ h1: h1.outcome, h2: h2.outcome, n: hp.length, revs: hr.length }));
+  const htests = hr[0]?.content.sections.flatMap((x: { tests: Array<{ key: string }> }) => x.tests.map(t => t.key)) ?? [];
+  ok("PG HPLC: exactly the 10 source tests with stable keys", JSON.stringify(htests) === JSON.stringify(HPLC_TEST_KEYS), JSON.stringify(htests));
+  ok("PG HPLC: one HPLC.pdf reference (pending verification), no duplicates", (await q(`select verification_status from protocol_references where code = 'HPLC-CAL-RECORD-LC2030'`)).rows.map(r => r.verification_status).join() === "pending-verification");
+  ok("PG HPLC: not approved automatically (no active protocol for New Validation)", (await val.activeProtocolForEquipment("hplc")).available === false);
 
   // v3 rollback: drops only the 4 v3 tables (+ guards); v2 data survive; re-applying the migration restores v3.
   const coreBefore = (await q(`select count(*)::int n from protocols`)).rows[0].n;

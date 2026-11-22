@@ -78,10 +78,10 @@ describe("calibration workflow v3 (SQLite store)", () => {
       ["CAL-QC-HPLC-001", 10], ["CAL-QC-POL-001", 6], ["CAL-QC-BAL-001", 9], ["CAL-QC-MOA-001", 6],
       ["CAL-QC-DIS-001", 7], ["CAL-QC-DISINT-001", 7], ["CAL-QC-REF-001", 6], ["CAL-QC-UV-001", 8],
     ]);
-    // HPLC.pdf documents an LC-2030 PLUS; the registered HPLC is LC-40B XR → not linked (conflict preserved as a gap).
-    expect(first.lines.find(l => l.protocolNumber === "CAL-QC-HPLC-001")!.linkedEquipment).toBeNull();
+    // HPLC: registered from HPLC.pdf and linked to the existing Equipment Master record QC-I-104 (LC 2030 PLUS vs LC-40B XR kept as review note E).
+    expect(first.lines.find(l => l.protocolNumber === "CAL-QC-HPLC-001")!.linkedEquipment).toMatch(/QC-I-104.*LC-40B XR/);
     expect(first.lines.find(l => l.protocolNumber === "CAL-QC-BAL-001")!.linkedEquipment).toMatch(/QC-I-074.*ED224S.*23304057/);
-    expect(first.lines.filter(l => l.linkedEquipment).length).toBe(7);
+    expect(first.lines.filter(l => l.linkedEquipment).length).toBe(8);
     const balance = (await wf.listEquipmentData()).find(e => e.instrumentKey === "balance")!;
     expect(balance.identity).toMatchObject({ instrumentId: "QC-I-074", model: "ED224S", serialNumber: "23304057" });
     expect(balance.specs.capacity).toMatchObject({ value: 220, unit: "g" });
@@ -89,6 +89,11 @@ describe("calibration workflow v3 (SQLite store)", () => {
     for (const line of first.lines) {
       const rev = await svc.getRevision(admin, line.revisionId!);
       expect(rev.revision.status).toBe("draft");
+      if (line.protocolNumber === "CAL-QC-HPLC-001") {
+        // HPLC.pdf criteria transcribed with page evidence; the two open interpretations stay pending for the Quality Manager.
+        expect(allCriteria(rev.revision.content).filter(c => c.criterion.verificationStatus === "pending-technical-verification").map(c => c.criterion.key).sort()).toEqual(["flow_limit", "gpv_limit"]);
+        continue;
+      }
       expect(allCriteria(rev.revision.content).every(c => c.criterion.verificationStatus === "pending-technical-verification")).toBe(true);
     }
     const bal = await svc.getRevision(admin, first.lines[2].revisionId!);

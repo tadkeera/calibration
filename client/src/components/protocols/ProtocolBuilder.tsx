@@ -457,6 +457,8 @@ function TestEditor({ c, si, ti, mut, refCode, pick }: { c: ProtocolContent; si:
             <Field label="Data type"><select value={t.dataType} onChange={e => set("dataType", e.target.value as ProtocolTest["dataType"])}>{DATA_TYPES.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}</select></Field>
             <label className="pm-check"><input type="checkbox" checked={t.required} onChange={e => set("required", e.target.checked)} /> Required test</label>
             <Field label="Readings required"><input type="number" min={0} max={100} value={t.readingsRequired} onChange={e => set("readingsRequired", Math.max(0, Math.min(100, Number(e.target.value) || 0)))} /></Field>
+            {(t.readingKeys ?? []).length > 0 && <Field label="Named readings (per level / test)"><div className="pm-muted">{(t.readingKeys ?? []).map(k => `${k.label || k.key}${k.unit ? ` (${k.unit})` : ""}`).join(" · ")}</div></Field>}
+            {t.decisionRole === "informational" && <Field label="Decision role"><div className="pm-muted">Informational — advisories only, not part of PASS / FAIL{(t.advisories ?? []).length ? `: ${(t.advisories ?? []).map(a => `${a.parameter} ${a.comparison} ${a.limit} ${a.unit}`).join("; ")}` : ""}</div></Field>}
             <Field label="Replicates"><input type="number" min={1} max={50} value={t.replicates} onChange={e => set("replicates", Math.max(1, Math.min(50, Number(e.target.value) || 1)))} /></Field>
             {txt("parameter", "Measured parameter")}
             {txt("unit", "Unit")}

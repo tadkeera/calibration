@@ -31,7 +31,12 @@ export type GraphData = {
 export type GraphInput = {
   readings: Array<number | null>;
   reference: number | null;
-  levels: Array<{ key: string; label: string; reference: number | null; values: Array<number | null> }>;
+  levels: Array<{ key: string; label: string; group?: string; reference: number | null; values: Array<number | null> }>;
+  /** Named readings of each level (reading i ↔ readingKeys[i]). */
+  readingKeys?: Array<{ key: string; label: string; unit: string }>;
+  /** Unrounded per-level calculation results: levelKey → calcKey → value. */
+  levelCalcs?: Record<string, Record<string, number | null>>;
+  calcUnits?: Record<string, { label: string; unit: string }>;
 };
 
 const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
@@ -66,7 +71,7 @@ function defaultTitle(type: GraphType, testName: string) {
 }
 
 /** Builds the configured graphs of one test. Returns [] when no graph is configured or data are insufficient. */
-export function buildTestGraphs(test: Pick<ProtocolTest, "key" | "name" | "unit" | "dataType" | "graphs">, input: GraphInput): GraphData[] {
+export function buildTestGraphs(test: Pick<ProtocolTest, "key" | "name" | "unit" | "dataType" | "graphs"> & { levelName?: string }, input: GraphInput): GraphData[] {
   const out: GraphData[] = [];
   const u = test.unit ?? "";
   (test.graphs ?? []).forEach((spec: GraphSpec, index) => {
@@ -139,6 +144,11 @@ export function buildTestGraphs(test: Pick<ProtocolTest, "key" | "name" | "unit"
         });
         return;
       }
+      case "level-xy": {
+        const g = levelXY(test, spec, input);
+        if (g) out.push({ ...base, ...g, title: base.title });
+        return;
+      }
       case "repeatability": {
         if (seriesReadings.length < 2) return;
         const m = stats.mean(seriesReadings);
@@ -163,4 +173,71 @@ export function fmt(v: number) {
   const a = Math.abs(v);
   if (a !== 0 && (a < 1e-4 || a >= 1e7)) return v.toExponential(4);
   return String(Number(v.toPrecision(7)));
+}
+
+/**
+ * Per-level values: x = level reference (set value), y = a named reading or a
+ * per-level calculation of that level. Levels with a missing / invalid y are
+ * left out; the graph is not drawn when fewer than 2 points exist (or 3 for a
+ * regression line). One series per level group.
+ */
+function levelXY(test: { unit: string; levelName?: string }, spec: GraphSpec, input: GraphInput): Omit<GraphData, "key" | "testKey" | "testName" | "type" | "title"> | null {
+  const yKey = spec.y?.trim();
+  if (!yKey) return null;
+  const readingIndex = (input.readingKeys ?? []).findIndex(r => r.key === yKey);
+  const reading = readingIndex >= 0 ? input.readingKeys![readingIndex] : null;
+  const calc = input.calcUnits?.[yKey] ?? null;
+  if (!reading && !calc) return null;
+  const pts = input.levels
+    .map(l => {
+      const y = reading ? l.values[readingIndex] : input.levelCalcs?.[l.key]?.[yKey];
+      return finite(l.reference) && finite(y) ? { x: l.reference, y, label: l.label || l.key, group: l.group ?? "" } : null;
+    })
+    .filter((p): p is { x: number; y: number; label: string; group: string } => p !== null);
+  if (pts.length < 2) return null;
+  const line = spec.line ?? "none";
+  const yName = reading ? reading.label || reading.key : calc!.label;
+  const yUnit = reading ? reading.unit : calc!.unit;
+  const groups = Array.from(new Set(pts.map(p => p.group)));
+  const series: GraphSeries[] = [];
+  groups.forEach(gname => {
+    const gp = pts.filter(p => p.group === gname).sort((a, b) => a.x - b.x);
+    const name = gname || yName;
+    series.push({ name, kind: "points", points: gp.map(p => ({ x: p.x, y: p.y, label: p.label })) });
+    if (line === "connect" && gp.length >= 2) series.push({ name: `${name} (connected)`, kind: "line", points: gp.map(p => ({ x: p.x, y: p.y, label: "" })) });
+  });
+  const lo = Math.min(...pts.map(p => p.x));
+  const hi = Math.max(...pts.map(p => p.x));
+  let reg: GraphData["regression"] = null;
+  const notes: string[] = [];
+  if (line === "identity") series.push({ name: "Ideal (y = x)", kind: "line", points: [{ x: lo, y: lo, label: "" }, { x: hi, y: hi, label: "" }] });
+  if (line === "regression") {
+    reg = regression(pts);
+    if (!reg || pts.length < 3) return null;
+    const r = reg;
+    series.push({ name: `Regression y = ${fmt(r.slope)}·x ${r.intercept < 0 ? "−" : "+"} ${fmt(Math.abs(r.intercept))}`, kind: "line", points: [lo, hi].map(x => ({ x, y: r.intercept + r.slope * x, label: "" })) });
+    notes.push(`y = ${fmt(r.slope)}·x ${r.intercept < 0 ? "−" : "+"} ${fmt(Math.abs(r.intercept))}; r = ${fmt(r.r)}; R² = ${fmt(r.r2)}; n = ${r.n}`);
+  }
+  if (spec.markMax) {
+    const max = Math.max(...pts.map(p => p.y));
+    const tied = pts.filter(p => p.y === max);
+    series.push({ name: `Maximum ${fmt(max)} at ${tied.map(p => fmt(p.x)).join(", ")}${tied.length > 1 ? " (tie — review)" : ""}`, kind: "points", points: tied.map(p => ({ x: p.x, y: p.y, label: "max" })) });
+    notes.push(`Maximum response ${fmt(max)} at x = ${tied.map(p => fmt(p.x)).join(", ")}${tied.length > 1 ? " — tie flagged for review" : ""}`);
+  }
+  const guides: GraphData["guides"] = [];
+  if (spec.meanGuide) {
+    const m = stats.mean(pts.map(p => p.y));
+    guides.push({ name: "Mean", y: m });
+    notes.push(`n = ${pts.length}; mean = ${fmt(m)}`);
+  }
+  (spec.guideLines ?? []).forEach(g => guides.push({ name: g.name, y: g.y }));
+  const levelUnit = test.unit ? ` (${test.unit})` : "";
+  return {
+    xLabel: spec.xLabel.trim() || `${test.levelName || "Level value"}${levelUnit}`,
+    yLabel: spec.yLabel.trim() || `${yName}${unitText(yUnit)}`,
+    series,
+    regression: reg,
+    guides,
+    notes,
+  };
 }

@@ -189,6 +189,7 @@ export const SOURCE_CLASSES = [
   { id: "institutional", label: "Institutional Requirement" },
   { id: "validated-method", label: "Validated Technical Method" },
   { id: "risk-based-proposal", label: "Risk-Based Proposal" },
+  { id: "laboratory-calibration-reference", label: "Laboratory Calibration Reference" },
 ] as const;
 export type SourceClass = (typeof SOURCE_CLASSES)[number]["id"];
 export const SOURCE_CLASS_IDS = SOURCE_CLASSES.map(s => s.id) as [
@@ -243,6 +244,7 @@ export const CALC_KINDS = [
   { id: "linearity-r", label: "Linearity — correlation coefficient r", scope: "levels" },
   { id: "linearity-r2", label: "Linearity — coefficient of determination r²", scope: "levels" },
   { id: "max-level-abs-error", label: "Max |level mean − level reference|", scope: "levels" },
+  { id: "level-reference-at-max", label: "Level reference value at the maximum response (ties flagged for review)", scope: "levels" },
   { id: "custom", label: "Custom formula", scope: "formula" },
 ] as const;
 export type CalcKind = (typeof CALC_KINDS)[number]["id"];
@@ -263,6 +265,7 @@ export const REFERENCE_TYPES = [
   { id: "regulatory-guidance", label: "Regulatory Guidance" },
   { id: "technical-publication", label: "Technical Publication" },
   { id: "validated-method", label: "Validated Method" },
+  { id: "laboratory-calibration-reference", label: "Laboratory Calibration Reference" },
   { id: "other", label: "Other Controlled Document" },
 ] as const;
 export type ReferenceType = (typeof REFERENCE_TYPES)[number]["id"];
@@ -356,6 +359,8 @@ export const levelSchema = z.object({
   nominal: num,
   unit: text(40),
   referenceNote: text(500),
+  /** Optional series / group name (e.g. "Pump A & B"); graphs draw one series per group. */
+  group: z.string().max(120).optional(),
 });
 export type TestLevel = z.infer<typeof levelSchema>;
 
@@ -366,6 +371,11 @@ export const fieldSchema = z.object({
   unit: text(40),
   required: z.boolean().default(true),
   options: z.array(z.string().max(200)).max(50).default([]),
+  /** Source-defined default (pre-filled in the form and recorded with the readings; e.g. a fixed collection volume). */
+  defaultValue: z.union([z.number().finite(), z.string().max(200)]).optional(),
+  /** Input validation: value must be strictly greater than / at least this number (an invalid value is never calculated). */
+  gt: z.number().finite().optional(),
+  gte: z.number().finite().optional(),
 });
 export type TestField = z.infer<typeof fieldSchema>;
 
@@ -386,6 +396,35 @@ export const calculationSchema = z.object({
 export type Calculation = z.infer<typeof calculationSchema>;
 
 /**
+ * Named readings of a reading set (e.g. per level: "thermometer" and "display",
+ * or "rt" and "area" per injection). Reading i of a level is bound to
+ * readingKeys[i] and becomes a formula variable of that name; at test scope the
+ * same name is the series of that reading over all levels.
+ */
+export const readingKeySchema = z.object({
+  key,
+  label: text(120),
+  unit: text(40),
+  gt: z.number().finite().optional(),
+  gte: z.number().finite().optional(),
+});
+export type ReadingKey = z.infer<typeof readingKeySchema>;
+
+/** Non-decisional advisory (e.g. maintenance / replacement alert). Never changes PASS / FAIL. */
+export const advisorySchema = z.object({
+  key,
+  parameter: text(120),
+  comparison: z.enum([">=", ">", "<=", "<"]),
+  limit: z.number().finite(),
+  unit: text(40),
+  alertMessage: text(500),
+  okMessage: text(500),
+  referenceId: z.string().max(64).nullable().default(null),
+  referenceClause: text(300),
+});
+export type Advisory = z.infer<typeof advisorySchema>;
+
+/**
  * Graphs a test produces from its actual readings (configured per test in the
  * protocol; nothing is drawn unless the test definition asks for it and the
  * required reference + measurement data exist).
@@ -396,6 +435,7 @@ export const GRAPH_TYPES = [
   { id: "error", label: "Error per point (measured − reference)", needs: "levels-or-series" },
   { id: "deviation", label: "Percentage deviation per point (%)", needs: "levels-or-series" },
   { id: "repeatability", label: "Repeatability (readings with mean and ±SD)", needs: "series" },
+  { id: "level-xy", label: "Per-level values (x = level value, y = reading or per-level calculation)", needs: "levels" },
 ] as const;
 export type GraphType = (typeof GRAPH_TYPES)[number]["id"];
 export const GRAPH_TYPE_IDS = GRAPH_TYPES.map(g => g.id) as [GraphType, ...GraphType[]];
@@ -404,6 +444,16 @@ export const graphSpecSchema = z.object({
   title: text(200),
   xLabel: text(120),
   yLabel: text(120),
+  /** level-xy: y = a reading key or a per-level calculation key. */
+  y: z.string().max(64).optional(),
+  /** level-xy line: identity (y = x), least-squares regression, connected points or none. */
+  line: z.enum(["identity", "regression", "connect", "none"]).optional(),
+  /** level-xy: highlight the maximum y value (all tied maxima are shown). */
+  markMax: z.boolean().optional(),
+  /** level-xy: horizontal guide at the mean of the plotted y values. */
+  meanGuide: z.boolean().optional(),
+  /** Static guide lines defined by the protocol (e.g. acceptance limits). */
+  guideLines: z.array(z.object({ name: z.string().max(80), y: z.number().finite() })).max(6).optional(),
 });
 export type GraphSpec = z.infer<typeof graphSpecSchema>;
 
@@ -437,6 +487,12 @@ export const testSchema = z.object({
   notes: text(2000),
   required: z.boolean().default(true),
   graphs: z.array(graphSpecSchema).max(10).default([]),
+  /** Name of the level value (e.g. "Set flow rate", "Wavelength", "Injection No."). */
+  levelName: z.string().max(120).optional(),
+  readingKeys: z.array(readingKeySchema).max(10).optional(),
+  /** "informational": recorded and assessed by advisories only; excluded from the PASS / FAIL decision. */
+  decisionRole: z.enum(["decision", "informational"]).optional(),
+  advisories: z.array(advisorySchema).max(10).optional(),
   dependency: z
     .object({
       type: z.enum(["independent", "sequential", "conditional"]).default("independent"),

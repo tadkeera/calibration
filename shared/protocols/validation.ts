@@ -49,7 +49,7 @@ export function structuralIssues(content: ProtocolContent): Issue[] {
       if (calc.kind === "custom") {
         try {
           parseFormula(calc.formula);
-          const allowed = new Set(["n", "mean", "sd", "min", "max", "reference", "readings", ...test.fields.map(f => f.key), ...Array.from(calcKeys)]);
+          const allowed = new Set(["n", "mean", "sd", "min", "max", "reference", "readings", ...test.fields.map(f => f.key), ...(test.readingKeys ?? []).map(r => r.key), ...Array.from(calcKeys)]);
           formulaVariables(calc.formula)
             .filter(v => !allowed.has(v))
             .forEach(v => err(`${p}.calculations.${calc.key}`, `Formula variable "${v}" is not a field, built-in variable or earlier calculation`));
@@ -58,13 +58,21 @@ export function structuralIssues(content: ProtocolContent): Issue[] {
         }
       }
       if (calc.scope === "per-level" && !test.levels.length) err(`${p}.calculations.${calc.key}`, "Per-level calculation requires configured levels");
-      if (calc.kind.startsWith("linearity") || calc.kind === "max-level-abs-error") {
+      if (calc.kind.startsWith("linearity") || calc.kind === "max-level-abs-error" || calc.kind === "level-reference-at-max") {
         if (test.levels.length < 2) err(`${p}.calculations.${calc.key}`, "Linearity calculations require at least 2 levels");
       }
       calcKeys.add(calc.key);
     });
     test.criteria.forEach(c => {
       if (c.levelKey && !levelKeys.has(c.levelKey)) err(`${p}.criteria.${c.key}`, `Unknown level "${c.levelKey}"`);
+    });
+    const readingKeys = test.readingKeys ?? [];
+    dupes(readingKeys.map(r => r.key)).forEach(k => err(p, `Duplicate reading key "${k}"`));
+    if (readingKeys.length && test.readingsRequired !== readingKeys.length)
+      err(p, `"${test.name}": ${readingKeys.length} named reading(s) configured but ${test.readingsRequired} reading(s) required — they must match`);
+    (test.advisories ?? []).forEach(a => {
+      const known = calcKeys.has(a.parameter) || test.fields.some(f => f.key === a.parameter);
+      if (!known) err(`${p}.advisories.${a.key}`, `Advisory ${a.key}: parameter "${a.parameter}" is not a calculation or field of the test`);
     });
     if (test.dependency.type !== "independent") {
       const target = test.dependency.testKey;
@@ -98,7 +106,8 @@ export function submissionIssues(content: ProtocolContent, references: Reference
       err(p, `"${test.name}": configure the number of readings (≥ 1)`);
     if (test.dataType === "multi-level" && test.levels.length < 1) err(p, `"${test.name}": multi-level test requires levels`);
     if (test.dataType === "checklist" && !test.fields.some(f => f.type === "boolean")) err(p, `"${test.name}": checklist requires at least one boolean item`);
-    if (!test.criteria.length) warn(p, `"${test.name}" has no acceptance criterion (results will require reviewer assessment)`);
+    if (!test.criteria.length && test.decisionRole !== "informational") warn(p, `"${test.name}" has no acceptance criterion (results will require reviewer assessment)`);
+    if (test.decisionRole === "informational" && !(test.advisories ?? []).length && !test.criteria.length) warn(p, `"${test.name}" is informational and has no advisory — it is recorded only`);
     test.criteria.forEach(c => {
       const cp = `${p}.criteria.${c.key}`;
       if (!c.referenceId && !c.justification.trim()) err(cp, `Criterion ${c.key}: a traceable reference or a documented technical justification is required`);

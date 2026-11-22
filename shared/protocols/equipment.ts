@@ -67,8 +67,16 @@ export const SPEC_CATALOG: Record<string, SpecDefinition[]> = {
     n("wavelengthMin", "Detector wavelength — min", "أدنى طول موجي", "range", ["nm"]),
     n("wavelengthMax", "Detector wavelength — max", "أعلى طول موجي", "range", ["nm"]),
     n("ovenMax", "Column oven — max temperature", "أعلى حرارة للفرن", "range", ["°C"]),
-    n("injectorCapacity", "Injector capacity", "سعة الحاقن", "configuration", ["µL"]),
+    n("injectorCapacity", "Injector / autosampler capacity", "سعة الحاقن / الحاقن الآلي", "configuration", ["µL"]),
     n("lampHours", "Lamp hours (as found)", "ساعات المصباح", "calibration", ["h"]),
+    d("installationDate", "Installation date", "تاريخ التركيب", "calibration"),
+    t("pumpConfiguration", "Pump configuration (e.g. quaternary / binary)", "تهيئة المضخة", "configuration", true),
+    t("injectorType", "Injector type", "نوع الحاقن", "configuration"),
+    t("detectorType", "Detector type", "نوع الكاشف", "configuration", true),
+    t("detectorWavelength", "Detector wavelength (range / setting)", "الطول الموجي للكاشف", "configuration"),
+    t("columnType", "Column type", "نوع العمود", "configuration"),
+    t("columnDimensions", "Column dimensions", "أبعاد العمود", "configuration"),
+    t("softwareName", "Chromatography software name", "اسم برنامج الكروماتوغرافيا", "software"),
   ],
   polarimeter: [
     n("rangeMin", "Optical rotation range — min", "أدنى مدى دوران", "range", ["°"]),
@@ -225,3 +233,18 @@ export function equipmentVersion(identity: EquipmentIdentity, specs: SpecMap) {
 
 /** Fields of the snapshot that are missing from the current equipment profile (shown as "Not available in the current equipment profile"). */
 export const NOT_AVAILABLE = "Not available in the current equipment profile";
+/** Shown for every equipment information field that has no recorded value (values are never invented). */
+export const NEEDS_EQUIPMENT_INFORMATION = "Needs Equipment Information";
+
+/** Equipment information rows (identity + specifications) with "Needs Equipment Information" for empty values. */
+export function equipmentInformationRows(snapshot: { equipmentType: string; identity: EquipmentIdentity; specs: SpecMap }): Array<{ group: string; label: string; value: string; source: string }> {
+  const idn = snapshot.identity as unknown as Record<string, string>;
+  const shown = (v: unknown) => (v === null || v === undefined || String(v).trim() === "" ? NEEDS_EQUIPMENT_INFORMATION : String(v));
+  const rows: Array<{ group: string; label: string; value: string; source: string }> = IDENTITY_FIELDS.filter(f => f.key !== "nameAr").map(f => ({ group: "Identification", label: f.label as string, value: shown(idn[f.key]), source: "Equipment Master" }));
+  specDefinitions(snapshot.equipmentType).forEach(def => {
+    const v = snapshot.specs?.[def.key];
+    const has = v && v.value !== null && v.value !== undefined && String(v.value).trim() !== "";
+    rows.push({ group: SPEC_GROUPS.find(g => g.key === def.group)?.label ?? def.group, label: def.label, value: has ? `${v!.value}${v!.unit ? ` ${v!.unit}` : ""}` : NEEDS_EQUIPMENT_INFORMATION, source: has ? v!.source || "Equipment Master" : "—" });
+  });
+  return rows;
+}

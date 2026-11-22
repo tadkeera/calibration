@@ -13,6 +13,7 @@ import { EXECUTION_REVIEW_ACTIONS, EXECUTION_REVIEW_STATUSES } from "../../share
 import { ATTACHMENT_ENTITY_TYPES, MAX_ATTACHMENT_BYTES } from "../../shared/protocols/attachments";
 import * as service from "../protocols/service";
 import * as workflow from "../protocols/workflowService";
+import * as hplcSeed from "../protocols/hplcSeed";
 import * as validation from "../protocols/validationService";
 import { ProtocolConflictError } from "../protocols/tables";
 
@@ -186,6 +187,8 @@ export const protocolsRouter = router({
   /* ---- v3: 8-protocol package, equipment data & specifications, calibration runs ---- */
   importPackage: protectedProcedure.mutation(({ ctx }) => run(() => workflow.importCalibrationPackage(actorOf(ctx)))),
   adoptBalanceRev03: protectedProcedure.mutation(({ ctx }) => run(() => workflow.adoptBalanceRev03(actorOf(ctx)))),
+  /** Registers / updates the HPLC protocol from HPLC.pdf (idempotent; Draft only — never approved automatically). */
+  seedHplcProtocol: protectedProcedure.mutation(({ ctx }) => run(() => hplcSeed.seedHplcProtocol(actorOf(ctx)))),
   equipmentData: protectedProcedure.query(() => run(() => workflow.listEquipmentData())),
   equipmentDetail: protectedProcedure.input(z.object({ instrumentKey })).query(({ input }) => run(() => workflow.getEquipmentData(input.instrumentKey))),
   updateEquipment: protectedProcedure

@@ -175,6 +175,49 @@ export function ReadingInputs({ count, values, onChange }: { count: number; valu
   );
 }
 
+/** Multi-level tests with named readings: one row per level, one column per named reading (grouped levels get a header row). */
+function NamedLevelTable({ test: t, value: v, onChange }: { test: ProtocolTest; value: TestMeasurement; onChange: (fn: (t: TestMeasurement) => TestMeasurement) => void }) {
+  const keys = t.readingKeys ?? [];
+  const setCell = (levelKey: string, i: number, val: number | null) =>
+    onChange(x => {
+      const cur = x.levels?.[levelKey] ?? [];
+      const next = Array.from({ length: keys.length }, (_, k) => cur[k] ?? null);
+      next[i] = val;
+      return { ...x, levels: { ...(x.levels ?? {}), [levelKey]: next } };
+    });
+  let lastGroup: string | undefined;
+  return (
+    <div className="pm-table-wrap">
+      <table className="pm-table">
+        <thead>
+          <tr>
+            <th>{t.levelName || "Level"}</th>
+            {keys.map(k => <th key={k.key}>{k.label || k.key}{k.unit ? ` (${k.unit})` : ""}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {t.levels.flatMap(l => {
+            const rows = [];
+            if (l.group && l.group !== lastGroup) rows.push(<tr key={`g-${l.group}`}><th colSpan={keys.length + 1}>{l.group}</th></tr>);
+            lastGroup = l.group;
+            rows.push(
+              <tr key={l.key}>
+                <td>{l.label || l.key}{l.nominal === null && <div className="pm-muted">reference value required</div>}</td>
+                {keys.map((k, i) => (
+                  <td key={k.key}>
+                    <input className="pm-input" style={{ width: 120 }} type="number" step="any" aria-label={`${l.label || l.key} — ${k.label || k.key}`} value={v.levels?.[l.key]?.[i] ?? ""} onChange={e => setCell(l.key, i, parseNum(e.target.value))} />
+                  </td>
+                ))}
+              </tr>
+            );
+            return rows;
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function TestInput({ test: t, value: v, onChange, preview }: { test: ProtocolTest; value: TestMeasurement; onChange: (fn: (t: TestMeasurement) => TestMeasurement) => void; preview?: string }) {
   const n = expected(t);
   const pending = t.criteria.filter(c => c.verificationStatus !== "verified").length;
@@ -185,19 +228,31 @@ export function TestInput({ test: t, value: v, onChange, preview }: { test: Prot
         <div className="pm-row">{pending > 0 && <PendingTag verified={false} />}{preview && <ResultBadge result={preview} />}</div>
       </div>
       {t.procedure && <details><summary className="pm-muted">Procedure</summary><div className="pm-pre">{t.procedure}</div></details>}
+      {(t.conditions || t.referenceClause) && <div className="pm-muted">{t.conditions && <div>Conditions: {t.conditions}</div>}{t.referenceClause && <div>Source: {t.referenceClause}</div>}</div>}
+      {t.decisionRole === "informational" && <div className="pm-alert pm-alert-info">Informational test — recorded with a maintenance advisory only; it does not affect the PASS / FAIL decision.</div>}
       {t.dependency.type !== "independent" && t.dependency.testKey && <div className="pm-muted">{t.dependency.type === "conditional" ? "Only if" : "After"} test {t.dependency.testKey}{t.dependency.type === "conditional" ? " passes" : ""}.</div>}
       <label className="pm-check"><input type="checkbox" checked={!!v.notApplicable} onChange={e => onChange(x => ({ ...x, notApplicable: e.target.checked }))} /> Not applicable</label>
       {v.notApplicable ? (
         <Field label="Justification for N/A *"><input value={v.naJustification ?? ""} onChange={e => onChange(x => ({ ...x, naJustification: e.target.value }))} /></Field>
       ) : (
         <>
-          {NUMERIC_TYPES.includes(t.dataType) && (
+          {NUMERIC_TYPES.includes(t.dataType) && !(t.readingKeys ?? []).length && (
             <Field label={`Readings (${n})${t.unit ? ` — ${t.unit}` : ""}`}><ReadingInputs count={n} values={v.readings ?? []} onChange={readings => onChange(x => ({ ...x, readings }))} /></Field>
+          )}
+          {NUMERIC_TYPES.includes(t.dataType) && (t.readingKeys ?? []).length > 0 && (
+            <div className="pm-grid c2">
+              {(t.readingKeys ?? []).map((k, i) => (
+                <Field key={k.key} label={`${k.label || k.key}${k.unit ? ` (${k.unit})` : ""} *`}>
+                  <input type="number" step="any" value={v.readings?.[i] ?? ""} onChange={e => onChange(x => { const next = Array.from({ length: n }, (_, j) => x.readings?.[j] ?? null); next[i] = parseNum(e.target.value); return { ...x, readings: next }; })} />
+                </Field>
+              ))}
+            </div>
           )}
           {NUMERIC_TYPES.includes(t.dataType) && t.nominal === null && (
             <Field label={`Reference value${t.dataType === "reference-comparison" ? " *" : ""}`} hint="Certified/reference value exactly as stated on the certificate"><input type="number" step="any" value={v.reference ?? ""} onChange={e => onChange(x => ({ ...x, reference: parseNum(e.target.value) }))} /></Field>
           )}
-          {t.dataType === "multi-level" && t.levels.map(l => (
+          {t.dataType === "multi-level" && (t.readingKeys ?? []).length > 0 && <NamedLevelTable test={t} value={v} onChange={onChange} />}
+          {t.dataType === "multi-level" && !(t.readingKeys ?? []).length && t.levels.map(l => (
             <div key={l.key} className="pm-grid c2">
               <Field label={`${l.label || l.key}: readings (${n})`}><ReadingInputs count={n} values={v.levels?.[l.key] ?? []} onChange={vals => onChange(x => ({ ...x, levels: { ...(x.levels ?? {}), [l.key]: vals } }))} /></Field>
               {l.nominal === null ? (
@@ -213,7 +268,12 @@ export function TestInput({ test: t, value: v, onChange, preview }: { test: Prot
                 const label = `${f.label || f.key}${f.unit ? ` (${f.unit})` : ""}${f.required ? " *" : ""}`;
                 if (f.type === "boolean")
                   return <Field key={f.key} label={label}><select value={typeof cur === "boolean" ? String(cur) : ""} onChange={e => setF(e.target.value === "" ? null : e.target.value === "true")}><option value="">— not answered —</option><option value="true">Yes / confirmed</option><option value="false">No / not confirmed</option></select></Field>;
-                if (f.type === "number") return <Field key={f.key} label={label}><input type="number" step="any" value={typeof cur === "number" ? cur : ""} onChange={e => setF(parseNum(e.target.value))} /></Field>;
+                if (f.type === "number")
+                  return (
+                    <Field key={f.key} label={label} hint={f.defaultValue !== undefined ? `Source-defined value ${f.defaultValue}${f.unit ? ` ${f.unit}` : ""} is used when left blank` : undefined}>
+                      <input type="number" step="any" placeholder={f.defaultValue !== undefined ? String(f.defaultValue) : undefined} value={typeof cur === "number" ? cur : ""} onChange={e => setF(parseNum(e.target.value))} />
+                    </Field>
+                  );
                 if (f.type === "single-select") return <Field key={f.key} label={label}><select value={typeof cur === "string" ? cur : ""} onChange={e => setF(e.target.value || null)}><option value="">—</option>{f.options.map(o => <option key={o}>{o}</option>)}</select></Field>;
                 if (f.type === "multi-select") return <Field key={f.key} label={label}><select multiple value={Array.isArray(cur) ? cur : []} onChange={e => setF(Array.from(e.target.selectedOptions).map(o => o.value))}>{f.options.map(o => <option key={o}>{o}</option>)}</select></Field>;
                 const inputType = f.type === "date" ? "date" : f.type === "time" ? "time" : "text";
@@ -240,12 +300,13 @@ export function EvaluationView({ evaluation }: { evaluation: ExecutionEvaluation
           {t.notes.length > 0 && <ul className="pm-muted">{t.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>}
           {t.calculations.length > 0 && (
             <table className="pm-table"><thead><tr><th>Calculation</th><th>Level</th><th>Value</th><th>Formula (rev)</th></tr></thead><tbody>
-              {t.calculations.map((c, i) => <tr key={i}><td>{c.label}</td><td>{c.levelKey ?? "—"}</td><td>{c.error ? <span className="pm-diff-removed">{c.error}</span> : `${c.value} ${c.unit}`}</td><td className="pm-mono">{c.formula} ({c.formulaRevision || "—"})</td></tr>)}
+              {t.calculations.map((c, i) => <tr key={i}><td>{c.label}</td><td>{c.levelLabel ?? c.levelKey ?? "—"}</td><td>{c.error ? <span className="pm-diff-removed">{c.error}</span> : `${fmtValue(c.value)} ${c.unit}`}{c.review && <div className="pm-badge pm-tone-warn">review</div>}</td><td className="pm-mono">{c.formula} ({c.formulaRevision || "—"})</td></tr>)}
             </tbody></table>
           )}
+          {(t.advisories ?? []).map(a => <div key={a.key} className={`pm-alert ${a.triggered ? "pm-alert-warn" : "pm-alert-info"}`}>{a.message} <span className="pm-muted">({a.parameter} {a.value ?? "—"}; alert {a.limit}; {a.referenceClause})</span></div>)}
           {t.criteria.length > 0 && (
             <table className="pm-table"><thead><tr><th>Criterion</th><th>Value</th><th>Limit</th><th>Result</th><th>Message</th></tr></thead><tbody>
-              {t.criteria.map((c, i) => <tr key={i}><td>{c.parameter}{c.levelKey ? ` [${c.levelKey}]` : ""}<div className="pm-muted">{c.sourceClass}</div></td><td>{c.value === null ? "—" : String(c.value)}</td><td>{c.limit}</td><td><ResultBadge result={c.status} /></td><td>{c.message}</td></tr>)}
+              {t.criteria.map((c, i) => <tr key={i}><td>{c.parameter}{c.levelKey ? ` [${c.levelKey}]` : ""}<div className="pm-muted">{c.sourceClass}</div></td><td>{c.value === null ? "—" : typeof c.value === "number" ? fmtValue(c.value) : String(c.value)}</td><td>{c.limit}</td><td><ResultBadge result={c.status} /></td><td>{c.message}</td></tr>)}
             </tbody></table>
           )}
         </div>
@@ -277,4 +338,10 @@ function ExecutionHistory({ rows, loading, error, user, duties, reviewFilter, se
       {open && <ExecutionDetailView key={open} executionId={open} user={user} duties={duties} />}
     </Panel>
   );
+}
+
+/** Display rounding only (the stored raw values keep full precision). */
+function fmtValue(v: number | null) {
+  if (v === null || v === undefined) return "—";
+  return Math.abs(v) >= 1e6 || (v !== 0 && Math.abs(v) < 1e-4) ? v.toPrecision(6) : String(Number(v.toPrecision(10)));
 }

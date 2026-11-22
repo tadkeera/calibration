@@ -14,7 +14,7 @@
  */
 import { jsPDF } from "jspdf";
 import type { ExecutionEvaluation, Measurements } from "@shared/protocols/evaluate";
-import type { EquipmentSnapshot } from "@shared/protocols/equipment";
+import { equipmentInformationRows, type EquipmentSnapshot } from "@shared/protocols/equipment";
 import { fmt, type GraphData } from "@shared/protocols/graphs";
 import { PENDING_LABEL, type ProtocolContent } from "@shared/protocols/model";
 import { pdfSafe } from "./protocolPdf";
@@ -43,6 +43,12 @@ export type ValidationPdfResult = { doc: jsPDF; documentId: string; tablePages: 
 
 const fmtVal = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : typeof v === "boolean" ? (v ? "Yes" : "No") : Array.isArray(v) ? v.map(x => (typeof x === "number" ? fmt(x) : String(x ?? "—"))).join("; ") : typeof v === "number" ? fmt(v) : String(v));
 const dt = (v: string | null | undefined) => (v ? `${v.slice(0, 16).replace("T", " ")} UTC` : "—");
+
+/** Display wording of the result codes (stored codes unchanged). */
+export const RESULT_TEXT: Record<string, string> = { PASS: "Pass", FAIL: "Fail", INCOMPLETE: "Pending", "NOT APPLICABLE": "Not Applicable", "UNDER REVIEW": "Pending Acceptance Criteria", RECORDED: "Recorded (informational)" };
+const resultText = (code: string) => (RESULT_TEXT[code] && RESULT_TEXT[code].toUpperCase() !== code ? `${RESULT_TEXT[code]} (${code})` : code);
+/** Display rounding only — the stored values keep full precision. */
+const num = (v: number | null | undefined) => (v === null || v === undefined || !Number.isFinite(v) ? "—" : Math.abs(v) >= 1e6 || (v !== 0 && Math.abs(v) < 1e-4) ? v.toPrecision(6) : String(Number(v.toPrecision(8))));
 
 type RefSnap = { code?: string; title?: string; edition?: string; revision?: string; applicableSection?: string; applicableClause?: string; verificationStatus?: string; referenceType?: string };
 
@@ -134,35 +140,43 @@ export function buildValidationPdf(input: ValidationPdfInput): ValidationPdfResu
     ["Protocol", `${input.protocolNumber} — ${input.protocolTitle}`],
     ["Protocol revision used", `Rev.${String(input.revisionNumber).padStart(2, "0")} (approved ${dt(input.revisionApprovedAt)} by ${input.revisionApprovedBy ?? "—"})`],
     ["Protocol content hash (snapshot)", input.contentHash],
+    ["Calibration / validation date", input.recordedAt ? input.recordedAt.slice(0, 10) : "—"],
     ["Recorded", `${dt(input.recordedAt)} by ${input.recordedBy ?? "—"}`],
+    ["Source", input.content.identification.applicableStandards || "—"],
     ["Calculation engine", ev.engineVersion],
-    ["OVERALL RESULT", ev.overall],
+    ["OVERALL RESULT", resultText(ev.overall)],
   ]);
   heading("A2. Equipment (snapshot at recording)", 2);
-  kv([
-    ["Equipment ID", idn.instrumentId || "—"],
-    ["Name", idn.nameEn || "—"],
-    ["Manufacturer / model", `${idn.manufacturer || "—"} / ${idn.model || "—"}`],
-    ["Serial number", idn.serialNumber || "—"],
-    ["SOP / form", `${idn.sopNumber || "—"} / ${idn.formNumber || "—"}`],
-  ]);
+  table(["Group", "Equipment information", "Value", "Source"], equipmentInformationRows(input.equipment).map(r => [r.group, r.label, r.value, r.source]), [1.1, 1.8, 2, 1.2]);
   heading("A3. Results summary", 2);
-  table(["Test", "Result", "Notes"], ev.tests.map(t => [t.name, t.status, t.notes.join(" ") || "—"]), [2.4, 0.9, 3]);
+  table(["Test", "Result", "Notes"], ev.tests.map(t => [t.name, resultText(t.status), t.notes.join(" ") || "—"]), [2.4, 1.1, 3]);
   const c = ev.counts;
-  para(`PASS ${c.PASS} · FAIL ${c.FAIL} · UNDER REVIEW ${c["UNDER REVIEW"]} · INCOMPLETE ${c.INCOMPLETE} · NOT APPLICABLE ${c["NOT APPLICABLE"]}`, { size: 8 });
+  para(`Pass ${c.PASS} · Fail ${c.FAIL} · Pending Acceptance Criteria (UNDER REVIEW) ${c["UNDER REVIEW"]} · Pending (INCOMPLETE) ${c.INCOMPLETE} · Not Applicable ${c["NOT APPLICABLE"]}${c.RECORDED ? ` · Recorded (informational) ${c.RECORDED}` : ""}`, { size: 8 });
 
   heading("A4. Test data, calculations and acceptance criteria", 2);
   input.content.sections.forEach(section =>
     section.tests.forEach(test => {
       const m = input.measurements[test.key] ?? {};
       const r = ev.tests.find(x => x.testKey === test.key);
-      para(`${test.name} — ${r?.status ?? "—"}`, { bold: true, size: 9.5, color: [12, 90, 76] });
+      para(`${test.name} — ${r ? resultText(r.status) : "—"}`, { bold: true, size: 9.5, color: [12, 90, 76] });
+      if (test.referenceClause) para(`Source reference: ${test.referenceClause}`, { size: 7.6 });
+      if (test.conditions) para(`Conditions: ${test.conditions}`, { size: 7.6 });
+      const keys = test.readingKeys ?? [];
+      if (keys.length && test.dataType === "multi-level" && test.levels.length && !m.notApplicable) {
+        // Raw readings as recorded: one row per level, one column per named reading.
+        table(
+          [test.levelName || "Level", ...keys.map(k => `${k.label || k.key}${k.unit ? ` (${k.unit})` : ""}`)],
+          test.levels.map(l => [`${l.group ? `${l.group} — ` : ""}${l.label || l.key}`, ...keys.map((_, i) => fmtVal(m.levels?.[l.key]?.[i] ?? null))]),
+          [1.6, ...keys.map(() => 1)]
+        );
+      }
       const raw: string[][] = [];
       if (m.notApplicable) raw.push(["NOT APPLICABLE — justification", m.naJustification || "—"]);
-      if (m.readings?.length) raw.push([`Readings${test.unit ? ` (${test.unit})` : ""}`, fmtVal(m.readings)]);
+      if (m.readings?.length && keys.length) keys.forEach((k, i) => raw.push([`${k.label || k.key}${k.unit ? ` (${k.unit})` : ""}`, fmtVal(m.readings?.[i] ?? null)]));
+      else if (m.readings?.length) raw.push([`Readings${test.unit ? ` (${test.unit})` : ""}`, fmtVal(m.readings)]);
       const ref = test.nominal ?? m.reference;
       if (ref !== undefined && ref !== null) raw.push(["Reference value", fmtVal(ref)]);
-      test.levels.forEach(l => {
+      if (!(keys.length && test.dataType === "multi-level")) test.levels.forEach(l => {
         const vals = m.levels?.[l.key];
         const lref = l.nominal ?? m.levelReferences?.[l.key];
         if (vals?.length || (lref !== undefined && lref !== null)) raw.push([l.label || l.key, `readings: ${fmtVal(vals ?? [])} | reference: ${fmtVal(lref)} ${l.unit}`.trim()]);
@@ -170,12 +184,14 @@ export function buildValidationPdf(input: ValidationPdfInput): ValidationPdfResu
       test.fields.forEach(f => {
         const v = m.fields?.[f.key];
         if (v !== undefined && v !== null && v !== "") raw.push([`${f.label || f.key}${f.unit ? ` (${f.unit})` : ""}`, fmtVal(v)]);
+        else if (f.defaultValue !== undefined && !m.notApplicable) raw.push([`${f.label || f.key}${f.unit ? ` (${f.unit})` : ""}`, `${fmtVal(f.defaultValue)} (source-defined value)`]);
       });
       if (raw.length) table(["Recorded data", "Value"], raw, [1.5, 3.4]);
       if (r?.calculations.length)
-        table(["Calculation", "Level", "Result", "Formula (rev.)"], r.calculations.map(k => [k.label, k.levelKey ?? "—", k.error ? `ERROR: ${k.error}` : `${fmtVal(k.value)} ${k.unit}`.trim(), `${k.formula}${k.formulaRevision ? ` [${k.formulaRevision}]` : ""}`]), [1.5, 0.6, 1.1, 2.6]);
+        table(["Calculation", "Level", "Result", "Formula (rev.)"], r.calculations.map(k => [k.label, k.levelLabel ?? k.levelKey ?? "—", k.error ? `ERROR: ${k.error}` : `${fmtVal(k.value)} ${k.unit}${k.review ? " (REVIEW)" : ""}`.trim(), `${k.formula}${k.formulaRevision ? ` [${k.formulaRevision}]` : ""}`]), [1.5, 0.8, 1.1, 2.4]);
+      (r?.advisories ?? []).forEach(a => para(`${a.triggered ? "MAINTENANCE ALERT — " : ""}${a.message} (${a.parameter} = ${a.value === null ? "—" : num(a.value)}; alert at ${a.limit}; ${a.referenceClause})`, { size: 7.8, bold: !!a.triggered, color: a.triggered ? [160, 60, 20] : [30, 45, 40] }));
       if (r?.criteria.length)
-        table(["Criterion", "Acceptance limit", "Value", "Decision", "Source / verification"], r.criteria.map(k => [`${k.parameter}${k.levelKey ? ` @${k.levelKey}` : ""}`, k.limit, fmtVal(k.value), k.status, `${k.sourceClass} — ${k.verificationStatus === "verified" ? "verified" : PENDING_LABEL}`]), [1.1, 1.4, 0.9, 0.9, 1.6]);
+        table(["Criterion", "Acceptance limit", "Value", "Decision", "Source / verification"], r.criteria.map(k => [`${k.parameter}${k.levelKey ? ` @${test.levels.find(l => l.key === k.levelKey)?.label || k.levelKey}` : ""}`, k.limit, fmtVal(k.value), resultText(k.status), `${k.sourceClass} — ${k.verificationStatus === "verified" ? "verified" : PENDING_LABEL}`]), [1.1, 1.4, 0.9, 0.9, 1.6]);
       if (r?.graphs?.length) para(`Graphs for this test: ${r.graphs.map(g => g.title).join("; ")} — see Section B.`, { size: 7.6, color: [100, 115, 108] });
     })
   );
@@ -185,6 +201,10 @@ export function buildValidationPdf(input: ValidationPdfInput): ValidationPdfResu
   if (refs.length)
     table(["Code", "Title", "Edition / revision", "Section / clause", "Type", "Verification"], refs.map(r => [r.code ?? "—", r.title ?? "—", [r.edition, r.revision].filter(Boolean).join(" / ") || "—", [r.applicableSection, r.applicableClause].filter(Boolean).join(" / ") || "—", r.referenceType ?? "—", r.verificationStatus ?? "—"]), [1, 2.2, 1, 1.2, 0.9, 0.9]);
   else para("No references are linked to this protocol revision.", { size: 8, color: [100, 115, 108] });
+  if (input.content.gaps.length) {
+    para("Review notes — source discrepancies preserved for Quality Manager review", { bold: true, size: 8.6 });
+    table(["Note", "Source values", "Assessment"], input.content.gaps.map(g => [g.title, g.specifications.map(x => `${x.label}: ${x.displayValue || (x.value ?? "—")} (${x.clause || "—"})`).join("; ") || g.description, g.assessment || "—"]), [1.6, 2.4, 2.2]);
+  }
 
   heading("A6. Signatures (system records only)", 2);
   table(["Role", "Name (system record)", "Date"], [["Validation recorded by", input.recordedBy ?? "Not recorded", dt(input.recordedAt)], ["Protocol revision approved by (Quality Manager)", input.revisionApprovedBy ?? "Not recorded", dt(input.revisionApprovedAt)]], [2, 2, 1.2]);
@@ -223,7 +243,7 @@ export function buildValidationPdf(input: ValidationPdfInput): ValidationPdfResu
     doc.setFontSize(8);
     doc.text(pdfSafe(`Validation report · ${input.protocolNumber} Rev.${String(input.revisionNumber).padStart(2, "0")} · ${idn.instrumentId} ${idn.model}`).slice(0, 110), M, 17.5);
     doc.setFont("helvetica", "bold");
-    doc.text(pdfSafe(`${p <= tablePages ? "Section A" : "Section B"} · Result: ${ev.overall}`), W - M, 12, { align: "right" });
+    doc.text(pdfSafe(`${p <= tablePages ? "Section A" : "Section B"} · Result: ${RESULT_TEXT[ev.overall] ?? ev.overall}`), W - M, 12, { align: "right" });
     doc.setDrawColor(190, 205, 195);
     doc.setLineWidth(0.2);
     doc.line(M, H - 14, W - M, H - 14);
@@ -305,30 +325,57 @@ function drawGraph(doc: jsPDF, g: GraphData, box: { x: number; y: number; w: num
     doc.text(pdfSafe(`${gd.name} ${fmt(gd.y)}`), box.x + box.w - 1, Y(gd.y) - 0.8, { align: "right" });
   });
   // series
-  const colors: Array<[number, number, number]> = [[12, 90, 76], [180, 83, 42], [59, 91, 140], [122, 78, 156]];
+  const col = (i: number) => pdfSeriesColor(g, i);
+  const isMax = (i: number) => g.series[i].name.startsWith("Maximum");
+  const isIdeal = (i: number) => g.series[i].kind === "line" && g.series[i].name.startsWith("Ideal");
+  const marker = (i: number, x: number, yy: number) => {
+    if (isMax(i)) {
+      // distinct marker for the maximum: open red triangle around the point
+      doc.setLineWidth(0.5);
+      doc.triangle(x, yy - 2.6, x - 2.3, yy + 1.5, x + 2.3, yy + 1.5, "S");
+      doc.circle(x, yy, 0.7, "F");
+    } else doc.circle(x, yy, 1.1, "F");
+  };
   g.series.forEach((s, i) => {
-    const col = colors[i % colors.length];
-    doc.setDrawColor(...col);
-    doc.setFillColor(...col);
+    doc.setDrawColor(...col(i));
+    doc.setFillColor(...col(i));
     if (s.kind === "line") {
       doc.setLineWidth(0.5);
+      if (isIdeal(i)) doc.setLineDashPattern([2, 1.4], 0);
       for (let k = 1; k < s.points.length; k++) doc.line(X(s.points[k - 1].x), Y(s.points[k - 1].y), X(s.points[k].x), Y(s.points[k].y));
-    } else s.points.forEach(p => doc.circle(X(p.x), Y(p.y), 1.1, "F"));
+      doc.setLineDashPattern([], 0);
+    } else s.points.forEach(p => marker(i, X(p.x), Y(p.y)));
   });
-  // legend
+  // legend (a "(connected)" line shares the entry of its points)
   let ly = box.y + box.h + 15;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7.6);
   g.series.forEach((s, i) => {
-    const col = colors[i % colors.length];
-    doc.setDrawColor(...col);
-    doc.setFillColor(...col);
+    if (s.kind === "line" && s.name.endsWith("(connected)")) return;
+    doc.setDrawColor(...col(i));
+    doc.setFillColor(...col(i));
     if (s.kind === "line") {
       doc.setLineWidth(0.6);
+      if (isIdeal(i)) doc.setLineDashPattern([2, 1.4], 0);
       doc.line(box.x, ly - 1, box.x + 6, ly - 1);
-    } else doc.circle(box.x + 3, ly - 1, 1.1, "F");
+      doc.setLineDashPattern([], 0);
+    } else marker(i, box.x + 3, ly - 1);
     doc.setTextColor(30, 45, 40);
     doc.text(pdfSafe(s.name), box.x + 8, ly);
     ly += 4.2;
   });
+}
+
+const PDF_COLORS: Array<[number, number, number]> = [[12, 90, 76], [180, 83, 42], [59, 91, 140], [122, 78, 156]];
+/** Same colour rules as the on-screen graph: points get their own colour, a "(connected)" line reuses it, identity line grey, maximum marker red. */
+export function pdfSeriesColor(g: GraphData, index: number): [number, number, number] {
+  const s = g.series[index];
+  if (s.name.startsWith("Maximum")) return [200, 30, 30];
+  if (s.kind === "line" && s.name.endsWith("(connected)")) {
+    const base = g.series.findIndex(x => x.name === s.name.replace(/ \(connected\)$/, ""));
+    if (base >= 0) return pdfSeriesColor(g, base);
+  }
+  const pointsBefore = g.series.slice(0, index).filter(x => x.kind === "points" && !x.name.startsWith("Maximum")).length;
+  if (s.kind === "points") return PDF_COLORS[pointsBefore % PDF_COLORS.length];
+  return s.name.startsWith("Ideal") ? [110, 114, 120] : PDF_COLORS[(pointsBefore + 1) % PDF_COLORS.length];
 }

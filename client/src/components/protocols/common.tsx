@@ -59,8 +59,18 @@ export function StatusBadge({ status }: { status: string }) {
 
 export function ResultBadge({ result }: { result: string }) {
   const tone = result === "PASS" ? "ok" : result === "FAIL" ? "bad" : result === "INCOMPLETE" ? "warn" : result === "UNDER REVIEW" ? "info" : "muted";
-  return <span className={`pm-badge pm-tone-${tone}`}>{result}</span>;
+  return <span className={`pm-badge pm-tone-${tone}`} title={result}>{RESULT_DISPLAY[result] ?? result}</span>;
 }
+
+/** Display wording of the stored result codes (codes themselves are unchanged in the database). */
+export const RESULT_DISPLAY: Record<string, string> = {
+  PASS: "Pass",
+  FAIL: "Fail",
+  INCOMPLETE: "Pending",
+  "NOT APPLICABLE": "Not Applicable",
+  "UNDER REVIEW": "Pending Acceptance Criteria",
+  RECORDED: "Recorded (informational)",
+};
 
 export function PendingTag({ verified }: { verified: boolean }) {
   return verified ? <span className="pm-badge pm-tone-ok">Verified</span> : <span className="pm-badge pm-tone-warn">{PENDING_LABEL}</span>;

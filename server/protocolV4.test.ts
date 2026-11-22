@@ -318,7 +318,11 @@ describe("v4 Protocol page, simplified approval and protocol-driven validation",
     // Roles still effective; board shows nine cards with no protocols.
     const board = await val.protocolBoard(qm);
     expect(board.permissions).toEqual({ canEdit: true, canApprove: true, canExecute: true });
-    expect(board.cards.every(c => c.protocol === null)).toBe(true);
+    // Only the HPLC protocol transcribed from HPLC.pdf is re-registered automatically — as a Draft, never approved.
+    expect(board.cards.filter(c => c.cardKey !== "hplc").every(c => c.protocol === null)).toBe(true);
+    const hplcCard = board.cards.find(c => c.cardKey === "hplc")!;
+    expect(hplcCard.protocol).toMatchObject({ number: "CAL-QC-HPLC-001", activeRevision: null, draftRevision: { revisionNumber: 1 } });
+    expect((await val.activeProtocolForEquipment("hplc")).available).toBe(false);
     expect((await val.activeProtocolForEquipment("polarimeter")).available).toBe(false);
   });
 });

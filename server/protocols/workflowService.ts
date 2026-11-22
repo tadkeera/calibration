@@ -27,6 +27,7 @@ import type { ExecutionDeviation } from "../../shared/protocols/executionReview"
 import { EDITABLE_STATUSES, LOCKED_STATUSES, parseProtocolContent, type ProtocolContent } from "../../shared/protocols/model";
 import { BAL_REV01_SPEC_SOURCES, BAL_REV03, BAL_REV03_REASON, PACKAGE_IMPORT_REASON, PACKAGE_NEW_EQUIPMENT, PACKAGE_PROTOCOLS, PACKAGE_REFERENCES } from "../../shared/protocols/package8";
 import { remapReferencePlaceholders } from "../../shared/protocols/adp220";
+import { HPLC_PROTOCOL_NUMBER } from "../../shared/protocols/hplcLc2030";
 import { buildRunSteps, canonicalStepBlockers, naMeasurementKey, runApprovalBlockers } from "../../shared/protocols/runWorkflow";
 import {
   ProtocolError,
@@ -653,6 +654,18 @@ export async function importCalibrationPackage(actor: Actor) {
   const lines: ImportLine[] = [];
   for (const pkg of PACKAGE_PROTOCOLS) {
     const tests = pkg.content.sections?.reduce((n, s) => n + (s.tests?.length ?? 0), 0) ?? 0;
+    if (pkg.number === HPLC_PROTOCOL_NUMBER) {
+      // Superseded by the HPLC.pdf transcription (10 tests, authoritative source) — registered through the HPLC seeder.
+      try {
+        const { seedHplcProtocol } = await import("./hplcSeed");
+        const res = await seedHplcProtocol(actor);
+        const created = res.outcome === "created";
+        lines.push({ protocolNumber: res.protocolNumber, status: created ? "created" : res.outcome === "blocked" ? "failed" : "skipped-existing", protocolId: res.protocolId, revisionId: res.revisionId, tests: res.tests, linkedEquipment: res.equipment, notes: [`HPLC.pdf protocol: ${res.outcome}.`, ...res.notes] });
+      } catch (error) {
+        lines.push({ protocolNumber: pkg.number, status: "failed", protocolId: null, revisionId: null, tests: 10, linkedEquipment: null, notes: [error instanceof Error ? error.message : String(error)] });
+      }
+      continue;
+    }
     if (existing.has(pkg.number)) {
       lines.push({ protocolNumber: pkg.number, status: "skipped-existing", protocolId: null, revisionId: null, tests, linkedEquipment: null, notes: ["A protocol with this number already exists — not overwritten."] });
       continue;
