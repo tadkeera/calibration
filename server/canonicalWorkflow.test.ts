@@ -91,12 +91,13 @@ describe("unified nine-step controlled workflow", () => {
     expect(canonicalStepBlockers(moa, unconfirmed).map(b => b.code)).toContain("na-step-accuracy");
   });
 
-  it("uses the exact Arabic equipment data page title in navigation and on the page", () => {
+  it("uses the exact equipment page title (English: Equipment Settings) in navigation and on the page", () => {
     const home = readFileSync(`${root}client/src/pages/Home.tsx`, "utf8");
     const page = readFileSync(`${root}client/src/components/protocols/EquipmentDataPage.tsx`, "utf8");
-    const exact = "تعديل بيانات المعدات والمواصفات";
+    const exact = "Equipment Settings";
     expect(home).toContain(exact);
     expect(page).toContain(exact);
     expect(page).toContain(`export const EQUIPMENT_PAGE_TITLE = "${exact}"`);
+    expect(home).not.toContain("تعديل بيانات المعدات والمواصفات");
   });
 });

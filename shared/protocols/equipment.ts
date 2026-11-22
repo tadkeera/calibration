@@ -1,5 +1,5 @@
 /**
- * Equipment data & specifications model (page «تعديل بيانات المعدات والمواصفات»).
+ * Equipment data & specifications model (page «Equipment Settings»).
  *
  * Identity fields remain in the existing Equipment Library (instrument_profiles);
  * typed, unit-aware specification groups are stored in protocol_equipment_specs.

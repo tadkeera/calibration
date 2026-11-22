@@ -1,6 +1,6 @@
 /**
  * Calibration workflow services (v3):
- *  - Equipment data & specifications («تعديل بيانات المعدات والمواصفات») with
+ *  - Equipment data & specifications («Equipment Settings») with
  *    field-level immutable audit and controlled propagation to protocols;
  *  - Calibration runs: dynamic per-protocol workflow (one step per test) with
  *    frozen equipment + protocol snapshots, versioned drafts and optimistic

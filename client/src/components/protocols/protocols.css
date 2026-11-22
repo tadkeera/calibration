@@ -113,7 +113,7 @@
 .pm-conflict { border-color: #E6C3BE; }
 .pm-spec-changed { background: #FFF6E6; }
 
-/* ---- «تعديل بيانات ومواصفات الأجهزة» ---- */
+/* ---- «Equipment Settings» ---- */
 .pm-equipment-layout { display: grid; grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); gap: 14px; align-items: start; }
 @media (max-width: 900px) { .pm-equipment-layout { grid-template-columns: 1fr; } }
 .pm-equipment-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 70vh; overflow-y: auto; }

@@ -56,8 +56,8 @@ const EquipmentDataPage = lazy(() =>
     default: m.EquipmentDataPage,
   }))
 );
-/** Exact page title required by the user (shown in both interface languages). */
-const EQUIPMENT_PAGE_TITLE = "تعديل بيانات المعدات والمواصفات";
+/** Exact page title required by the user: English "Equipment Settings" (shown in both interface languages). */
+const EQUIPMENT_PAGE_TITLE = "Equipment Settings";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import {
