@@ -14,6 +14,8 @@ import {
   COMPARISONS,
   DATA_TYPES,
   FIELD_TYPES,
+  GRAPH_TYPES,
+  type GraphSpec,
   INTERVAL_ACTIVITIES,
   INTERVAL_UNITS,
   PENDING_LABEL,
@@ -141,7 +143,7 @@ export function ProtocolBuilder({ revisionId, setNav }: { revisionId: string; se
       >
         <div className={`pm-alert ${errors.length ? "pm-alert-warn" : "pm-alert-ok"}`}>
           <div>
-            {errors.length ? <><strong>{errors.length} issue(s) must be resolved before submission for technical review.</strong> Drafts can be saved at any time.</> : <strong>Ready to submit for technical review (from the Review & approval tab).</strong>}
+            {errors.length ? <><strong>{errors.length} issue(s) must be resolved before the Quality Manager can approve this draft.</strong> Drafts can be saved at any time.</> : <strong>Ready for Quality Manager approval (Protocol page → Approve).</strong>}
             {issues.length > 0 && (
               <details><summary>Show {issues.length} validation message(s)</summary><ul>{issues.map((i, k) => <li key={k} className={i.severity === "error" ? "pm-diff-removed" : "pm-diff-modified"}>{i.message}</li>)}</ul></details>
             )}
@@ -514,6 +516,17 @@ function TestEditor({ c, si, ti, mut, refCode, pick }: { c: ProtocolContent; si:
           </SubList>
           <SubList title="Acceptance criteria (§10)" onAdd={() => up(x => { x.criteria.push({ key: newKey("c"), parameter: x.calculations[0]?.key ?? "reading", requirement: "", comparison: "record-only", lower: null, upper: null, target: null, tolerance: null, unit: x.unit, levelKey: null, sourceClass: "manufacturer", referenceId: null, referenceClause: "", justification: "", verificationStatus: "pending-technical-verification", verificationEvidence: "", conflictNote: "" } as Criterion); })}>
             {t.criteria.map((cr, ci) => <CriterionEditor key={ci} t={t} cr={cr} up={fn => up(x => fn(x.criteria[ci]))} remove={() => up(x => { x.criteria.splice(ci, 1); })} refCode={refCode} pick={pick} />)}
+          </SubList>
+          <SubList title="Graphs (drawn only from the readings entered in New Validation)" onAdd={() => up(x => { x.graphs.push({ type: x.levels.length ? "calibration-curve" : "repeatability", title: "", xLabel: "", yLabel: "" }); })}>
+            {t.graphs.map((g, gi) => (
+              <div key={gi} className="pm-grid c4">
+                <select className="pm-input" value={g.type} onChange={e => up(x => { x.graphs[gi].type = e.target.value as GraphSpec["type"]; })}>{GRAPH_TYPES.map(gt => <option key={gt.id} value={gt.id}>{gt.label}</option>)}</select>
+                <input className="pm-input" value={g.title} onChange={e => up(x => { x.graphs[gi].title = e.target.value; })} placeholder="Title (optional)" />
+                <input className="pm-input" value={g.xLabel} onChange={e => up(x => { x.graphs[gi].xLabel = e.target.value; })} placeholder="X-axis label (optional)" />
+                <div className="pm-row"><input className="pm-input" value={g.yLabel} onChange={e => up(x => { x.graphs[gi].yLabel = e.target.value; })} placeholder="Y-axis label (optional)" /><button type="button" className="pm-btn small danger" onClick={() => up(x => { x.graphs.splice(gi, 1); })}><Trash2 size={12} /></button></div>
+                {GRAPH_TYPES.find(gt => gt.id === g.type)?.needs === "levels" && !t.levels.length && <div className="pm-muted" style={{ gridColumn: "1 / -1" }}>This graph needs reference levels (nominal values); without levels it is not drawn.</div>}
+              </div>
+            ))}
           </SubList>
         </>
       )}

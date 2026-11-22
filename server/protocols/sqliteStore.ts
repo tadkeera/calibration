@@ -1,4 +1,5 @@
 /** SQLite implementation of the protocol store (offline / desktop mode). */
+import { randomUUID } from "node:crypto";
 // localDb is imported lazily: node:sqlite must never load in Supabase/serverless mode.
 import { SQLITE_PROTOCOL_ADDED_COLUMNS, SQLITE_PROTOCOL_DDL, SQLITE_PROTOCOL_GUARDS, SQLITE_PROTOCOL_POST_UPGRADE } from "./sqliteSchema";
 import {
@@ -130,3 +131,72 @@ export const sqliteProtocolStore: ProtocolStore = {
     return { ok: missing.length === 0, missing, workflowOk: workflowMissing.length === 0, workflowMissing };
   },
 };
+
+/** Protocol data tables emptied by the v4 reset (equipment master, duties and the audit trail are kept). */
+export const PROTOCOL_RESET_TABLES = [
+  "protocol_run_snapshots",
+  "protocol_runs",
+  "protocol_execution_reviews",
+  "protocol_attachments",
+  "protocol_executions",
+  "protocol_notification_reads",
+  "protocol_notifications",
+  "protocol_approvals",
+  "protocol_review_comments",
+  "protocol_templates",
+  "protocol_revisions",
+  "protocols",
+  "protocol_references",
+] as const;
+
+/**
+ * Local (SQLite) equivalent of server/sql/protocol_v4_simplified_approval_reset.sql.
+ * 1. Writes a full copy of the database to `backupPath` (VACUUM INTO) BEFORE anything is deleted.
+ * 2. Inside one transaction: drops the guard triggers of the protocol data tables, deletes their
+ *    rows (children first; foreign keys stay enforced), recreates every guard trigger and appends
+ *    an audit event. Users, duty assignments, equipment master/specs, validation records and the
+ *    audit trail are not touched.
+ */
+export async function resetProtocolDataSqlite(input: { backupPath: string; actor: { id: number; name: string } }) {
+  const conn = await connection();
+  const quoted = input.backupPath.replace(/'/g, "''");
+  conn.exec(`VACUUM INTO '${quoted}'`);
+  const counts: Record<string, number> = {};
+  PROTOCOL_RESET_TABLES.forEach(t => {
+    counts[t] = Number((conn.prepare(`SELECT count(*) AS n FROM ${t}`).get() as { n: number }).n);
+  });
+  const list = PROTOCOL_RESET_TABLES.map(t => `'${t}'`).join(",");
+  const triggers = conn.prepare(`SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name IN (${list})`).all() as Array<{ name: string }>;
+  conn.exec("BEGIN IMMEDIATE");
+  try {
+    triggers.forEach(t => conn.exec(`DROP TRIGGER IF EXISTS "${t.name.replace(/"/g, "")}"`));
+    PROTOCOL_RESET_TABLES.forEach(t => conn.exec(`DELETE FROM ${t}`));
+    conn.exec(SQLITE_PROTOCOL_DDL);
+    conn.exec(SQLITE_PROTOCOL_POST_UPGRADE);
+    conn.exec(SQLITE_PROTOCOL_GUARDS);
+    const t = new Date().toISOString();
+    conn
+      .prepare("INSERT INTO protocol_audit_events (id, entity_type, entity_id, action, actor_user_id, actor_name, actor_role, previous_value, new_value, reason, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+      .run(
+        randomUUID(),
+        "module",
+        "protocol-data",
+        "protocol-data.reset",
+        input.actor.id,
+        input.actor.name,
+        "system",
+        JSON.stringify(counts),
+        JSON.stringify({ backup: input.backupPath, kept: ["app_users", "protocol_duty_assignments", "instrument_profiles", "protocol_equipment_specs", "protocol_equipment_changes", "validation_records", "protocol_audit_events"] }),
+        "Experimental protocol data removed before the new Protocol page / simplified Quality Manager approval (v4). Protocols are re-entered manually.",
+        t
+      );
+    conn.exec("COMMIT");
+  } catch (error) {
+    conn.exec("ROLLBACK");
+    // Make sure the guards exist again even after a failure.
+    conn.exec(SQLITE_PROTOCOL_DDL);
+    conn.exec(SQLITE_PROTOCOL_GUARDS);
+    throw error;
+  }
+  return { backupPath: input.backupPath, deleted: counts, triggersRecreated: triggers.length };
+}

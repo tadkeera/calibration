@@ -166,3 +166,31 @@ export function approvalBlockers(content: ProtocolContent, ctx: ApprovalContext)
   if (!content.risk.overall || !content.risk.justification.trim()) blockers.push("Risk assessment (overall level and justification) is not documented");
   return blockers;
 }
+
+/**
+ * Blockers for the simplified Quality Manager approval (Draft → Approved).
+ * Honest minimum: complete content, every acceptance criterion verified
+ * against its source, every cited reference verified and not expired, and
+ * every documented technical gap assessed. "Needs Source Verification" values
+ * can therefore never be approved silently.
+ */
+export function qmApprovalBlockers(content: ProtocolContent, ctx: { references: ReferenceLookup; today: string }): string[] {
+  const blockers: string[] = [];
+  const errors = submissionIssues(content, ctx.references).filter(i => i.severity === "error");
+  if (errors.length) blockers.push(`${errors.length} content error(s) must be corrected (e.g. ${errors[0].message})`);
+  const tests = content.sections.flatMap(s => s.tests);
+  if (!tests.length) blockers.push("The protocol has no tests");
+  const pendingCriteria = allCriteria(content).filter(({ criterion }) => criterion.verificationStatus !== "verified");
+  if (pendingCriteria.length)
+    blockers.push(`${pendingCriteria.length} acceptance criterion/criteria are not verified against their source (${PENDING_LABEL}): ${pendingCriteria.slice(0, 6).map(x => `${x.test.key}/${x.criterion.key}`).join(", ")}${pendingCriteria.length > 6 ? ", …" : ""}`);
+  content.gaps.forEach(g => {
+    if (!g.assessment.trim()) blockers.push(`Technical gap "${g.title}" has no documented technical assessment`);
+  });
+  collectReferenceIds(content).forEach(refId => {
+    const ref = ctx.references.get(refId);
+    if (!ref) return;
+    if (ref.verificationStatus !== "verified") blockers.push(`Reference ${ref.code} is ${ref.verificationStatus} (edition / chapter / section must be verified)`);
+    if (ref.expiryDate && ref.expiryDate < ctx.today) blockers.push(`Reference ${ref.code} expired on ${ref.expiryDate}`);
+  });
+  return blockers;
+}

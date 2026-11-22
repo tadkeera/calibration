@@ -16,6 +16,7 @@
     "build:vercel": "vite build && node scripts/build-vercel.mjs",
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc --noEmit",
+    "protocols:reset:local": "QC_STORAGE_MODE=local NODE_OPTIONS=--experimental-sqlite tsx scripts/reset-protocol-data.ts",
     "format": "prettier --write .",
     "test": "NODE_OPTIONS=--experimental-sqlite vitest run",
     "test:integration": "SUPABASE_INTEGRATION=required NODE_OPTIONS=--experimental-sqlite vitest run server/supabase.integration.test.ts server/supabase.connection.test.ts server/localAuth.test.ts server/validationSettings.test.ts",

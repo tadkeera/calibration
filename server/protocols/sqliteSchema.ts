@@ -156,6 +156,9 @@ BEGIN
       OR NEW.instrument_key IS NOT OLD.instrument_key OR NEW.run_number IS NOT OLD.run_number;
 END;
 
+-- Recreated on every start so upgraded databases receive the current transition list
+-- (simplified Quality Manager approval: draft>released).
+DROP TRIGGER IF EXISTS protocol_revisions_guard_update;
 CREATE TRIGGER IF NOT EXISTS protocol_revisions_guard_update BEFORE UPDATE ON protocol_revisions
 BEGIN
   SELECT RAISE(ABORT, 'protocol_revisions: protocol_id and revision_number are immutable')

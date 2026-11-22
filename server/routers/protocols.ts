@@ -13,6 +13,7 @@ import { EXECUTION_REVIEW_ACTIONS, EXECUTION_REVIEW_STATUSES } from "../../share
 import { ATTACHMENT_ENTITY_TYPES, MAX_ATTACHMENT_BYTES } from "../../shared/protocols/attachments";
 import * as service from "../protocols/service";
 import * as workflow from "../protocols/workflowService";
+import * as validation from "../protocols/validationService";
 import { ProtocolConflictError } from "../protocols/tables";
 
 type Ctx = { user: { id: number; name: string | null; role: "admin" | "user" | "viewer"; email?: string | null } };
@@ -211,4 +212,27 @@ export const protocolsRouter = router({
     .mutation(({ ctx, input }) => run(() => workflow.recordRun(actorOf(ctx), input))),
   abandonRun: protectedProcedure.input(z.object({ runId, expectedRowVersion: z.number().int().min(1), reason: z.string().min(3).max(1000) })).mutation(({ ctx, input }) => run(() => workflow.abandonRun(actorOf(ctx), input))),
   logRunPdf: protectedProcedure.input(z.object({ runId, documentStatus: z.string().max(60), documentId: z.string().max(120) })).mutation(({ ctx, input }) => run(() => workflow.logRunPdf(actorOf(ctx), input))),
+
+  // ---- v4: Protocol page (nine equipment cards) + simplified approval + protocol-driven New Validation
+  board: protectedProcedure.query(({ ctx }) => run(() => validation.protocolBoard(actorOf(ctx)))),
+  forEquipment: protectedProcedure.input(z.object({ instrumentKey })).query(({ ctx, input }) => run(() => validation.protocolForEquipment(actorOf(ctx), input.instrumentKey))),
+  createForEquipment: protectedProcedure
+    .input(z.object({ instrumentKey, number: z.string().min(2).max(64), title: z.string().min(3).max(255), protocolType: z.enum(PROTOCOL_TYPE_IDS).optional(), reason: z.string().max(1000) }))
+    .mutation(({ ctx, input }) => run(() => validation.createProtocolForEquipment(actorOf(ctx), input))),
+  edit: protectedProcedure
+    .input(z.object({ protocolId: z.string().min(1).max(64), reason: z.string().max(1000) }))
+    .mutation(({ ctx, input }) => run(() => validation.editProtocol(actorOf(ctx), input))),
+  approve: protectedProcedure
+    .input(z.object({ revisionId, expectedRowVersion: z.number().int().positive(), comment: z.string().max(2000).optional(), password: signaturePassword }))
+    .mutation(({ ctx, input }) => run(() => service.transition(actorOf(ctx), { ...input, action: "approve" }))),
+  registerPackageEquipment: protectedProcedure.mutation(({ ctx }) => run(() => workflow.registerPackageEquipment(actorOf(ctx)))),
+  activeForEquipment: protectedProcedure.input(z.object({ instrumentKey })).query(({ input }) => run(() => validation.activeProtocolForEquipment(input.instrumentKey))),
+  calculateValidation: protectedProcedure
+    .input(z.object({ instrumentKey, revisionId, measurements: measurementsSchema }))
+    .mutation(({ input }) => run(() => validation.calculateValidation(input))),
+  recordValidation: protectedProcedure
+    .input(z.object({ instrumentKey, revisionId, measurements: measurementsSchema, comments: z.string().max(4000).optional() }))
+    .mutation(({ ctx, input }) => run(() => validation.recordValidation(actorOf(ctx), input))),
+  validations: protectedProcedure.input(z.object({ instrumentKey: z.string().max(64).optional() }).optional()).query(({ input }) => run(() => validation.listValidations(input ?? {}))),
+  validation: protectedProcedure.input(z.object({ runId })).query(({ input }) => run(() => validation.getValidation(input.runId))),
 });

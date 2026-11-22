@@ -35,7 +35,7 @@ import {
   type ExecutionReviewAction,
 } from "../../shared/protocols/executionReview";
 import { DUE_SOON_DAYS, computeSchedule, type ScheduleItem } from "../../shared/protocols/schedule";
-import { approvalBlockers, structuralIssues, submissionIssues, type GapDecisionRecord, type ReferenceLookup } from "../../shared/protocols/validation";
+import { approvalBlockers, qmApprovalBlockers, structuralIssues, submissionIssues, type GapDecisionRecord, type ReferenceLookup } from "../../shared/protocols/validation";
 import {
   GRANTABLE_DUTIES,
   TRANSITIONS,
@@ -620,6 +620,7 @@ export async function getRevision(actor: Actor, revisionId: string) {
     revision: { ...mapRevisionSummary(revision), content: revision.content, referenceSnapshot: revision.reference_snapshot ?? null },
     issues: submissionIssues(revision.content, lookup),
     approvalBlockers: approvalBlockers(revision.content, { references: lookup, gapDecisions, openCommentCount: openComments, today: today() }),
+    qmApprovalBlockers: revision.status === "draft" ? qmApprovalBlockers(revision.content, { references: lookup, today: today() }) : [],
     gapDecisions: Array.from(gapDecisions.values()),
     comments: comments.map(mapComment),
     approvals: approvals.map(mapApproval),
@@ -685,7 +686,7 @@ export type ReferenceInput = {
 const SIGNIFICANT_REFERENCE_FIELDS = ["code", "title", "document_number", "edition", "revision", "effective_date", "expiry_date", "verification_status", "publication_date"] as const;
 
 export async function saveReference(actor: Actor, input: ReferenceInput) {
-  const duties = await requireDuty(actor, "author", "technical-reviewer", "qa-approver");
+  const duties = await requireDuty(actor, "author", "quality-manager");
   const existing = input.id ? (await protocolStore().select<ReferenceRow>("protocol_references", { where: { id: input.id }, limit: 1 }))[0] : undefined;
   if (input.id && !existing) throw new ProtocolError("NOT_FOUND", "Reference not found");
   const sameCode = await protocolStore().select<{ id: string }>("protocol_references", { where: { code: input.code }, columns: ["id"] });
@@ -851,6 +852,19 @@ export async function createRevision(actor: Actor, input: { protocolId: string; 
 /* Review & approval workflow                                           */
 /* ------------------------------------------------------------------ */
 
+/** Only one active approved protocol per equipment (equipment-linked protocols). */
+async function assertSingleActiveForEquipment(protocolId: string, content: ProtocolContent) {
+  const keys = new Set(content.equipmentLinks.map(l => l.instrumentKey));
+  if (!keys.size) return;
+  const others = (await protocolStore().select<ProtocolRow>("protocols", {})).filter(p => p.id !== protocolId && p.released_revision_id);
+  for (const p of others) {
+    const rev = await loadRevision(p.released_revision_id as string);
+    if (rev.status !== "released") continue;
+    const clash = rev.content.equipmentLinks.find(l => keys.has(l.instrumentKey));
+    if (clash) throw new ProtocolError("PRECONDITION_FAILED", `Equipment ${clash.instrumentId || clash.instrumentKey} already has an active approved protocol (${p.protocol_number} Rev ${rev.revision_number}); only one active protocol per equipment is allowed`);
+  }
+}
+
 export async function transition(actor: Actor, input: { revisionId: string; expectedRowVersion: number; action: WorkflowAction; comment?: string; effectiveDate?: string; attestation?: boolean; password?: string }) {
   const duties = await dutiesOf(actor);
   const revision = await loadRevision(input.revisionId);
@@ -916,6 +930,29 @@ export async function transition(actor: Actor, input: { revisionId: string; expe
       }
       break;
     }
+    case "approve": {
+      // Simplified controlled approval: Quality Manager approves the draft; it
+      // becomes the single active revision immediately (stored as "released").
+      const [{ rows: refRows, lookup }, comments] = await Promise.all([referenceLookup(), commentsFor(revision.id)]);
+      const blockers = qmApprovalBlockers(revision.content, { references: lookup, today: today() });
+      if (blockers.length) throw new ProtocolError("PRECONDITION_FAILED", "Approval is blocked", blockers);
+      await assertSingleActiveForEquipment(protocol.id, revision.content);
+      const used = new Set(collectReferenceIds(revision.content));
+      const snapshot = { capturedAt: t, references: refRows.filter(r => used.has(r.id)).map(mapReference), gapDecisions: Array.from(latestGapDecisions(comments).values()) };
+      const effective = today();
+      const periodic = revision.content.intervals.find(i => i.activity === "Periodic Review" && i.unit !== "event" && i.value);
+      const nextReview = periodic ? addInterval(new Date(`${effective}T00:00:00Z`), periodic.value as number, periodic.unit)?.toISOString().slice(0, 10) ?? null : null;
+      Object.assign(set, { approved_at: t, locked: true, reference_snapshot: snapshot, qa_approver_user_id: actor.id, qa_approver_name: actor.name, released_by_user_id: actor.id, released_by_name: actor.name, released_at: t, effective_date: effective, next_review_date: nextReview });
+      extraAudit.referenceSnapshot = snapshot.references.map(r => ({ id: r.id, code: r.code, edition: r.edition, revision: r.revision, rowVersion: r.rowVersion }));
+      extraAudit.approvedBy = actor.name;
+      extraAudit.approvedAt = t;
+      const previous = (await revisionSummaries(protocol.id)).find(r => r.status === "released");
+      if (previous) {
+        changes.push({ op: "update", table: "protocol_revisions", id: previous.id, set: { status: "superseded", superseded_at: t, superseded_by_revision_id: revision.id, updated_at: t, row_version: previous.row_version + 1 }, expect: { row_version: previous.row_version, status: "released" } });
+        changes.push(audit(actor, duties, { protocolId: protocol.id, revisionId: previous.id, revisionNumber: previous.revision_number, entityType: "revision", entityId: previous.id, action: "revision.superseded", previous: { status: "released" }, next: { status: "superseded", supersededBy: revision.revision_number } }));
+      }
+      break;
+    }
     case "retire":
       Object.assign(set, { retired_at: t });
       break;
@@ -928,9 +965,9 @@ export async function transition(actor: Actor, input: { revisionId: string; expe
     table: "protocol_approvals",
     row: { id: id(), protocol_id: protocol.id, revision_id: revision.id, revision_number: revision.revision_number, action: input.action, from_status: revision.status, to_status: rule.to, signature_meaning: rule.signatureMeaning, actor_user_id: actor.id, actor_name: actor.name, actor_role: actorRole(actor, duties), comment: comment || null, content_hash: revision.content_hash, created_at: t, reauthenticated: Boolean(rule.signatureMeaning) },
   });
-  const revs = (await revisionSummaries(protocol.id)).map(r => (r.id === revision.id ? { ...r, status: rule.to } : input.action === "release" && r.status === "released" ? { ...r, status: "superseded" as RevisionStatus } : r));
+  const revs = (await revisionSummaries(protocol.id)).map(r => (r.id === revision.id ? { ...r, status: rule.to } : (input.action === "release" || input.action === "approve") && r.status === "released" ? { ...r, status: "superseded" as RevisionStatus } : r));
   const header: Row = { status: deriveProtocolStatus(revs), updated_at: t, row_version: protocol.row_version + 1 };
-  if (input.action === "release") Object.assign(header, { released_revision_id: revision.id, released_revision_number: revision.revision_number, review_flag: false, review_flag_reason: null });
+  if (input.action === "release" || input.action === "approve") Object.assign(header, { released_revision_id: revision.id, released_revision_number: revision.revision_number, review_flag: false, review_flag_reason: null });
   if (input.action === "retire") Object.assign(header, { released_revision_id: null, released_revision_number: null });
   changes.push({ op: "update", table: "protocols", id: protocol.id, set: header, expect: { row_version: protocol.row_version } });
   changes.push(audit(actor, duties, { protocolId: protocol.id, revisionId: revision.id, revisionNumber: revision.revision_number, entityType: "revision", entityId: revision.id, action: `workflow.${input.action}`, previous: { status: revision.status }, next: { status: rule.to, contentHash: revision.content_hash, ...extraAudit, ...(input.effectiveDate ? { effectiveDate: input.effectiveDate } : {}) }, reason: comment || null }));
@@ -1387,7 +1424,7 @@ export async function logPdfGenerated(actor: Actor, input: { revisionId: string;
 /* Internals shared with the run / equipment / package services          */
 /* ------------------------------------------------------------------ */
 
-export const internals = { requireDuty, dutiesOf, audit, notify, id, now, loadProtocol, loadRevision, referenceLookup, actorRole, parseContentOrThrow, assertStructure, revisionDerived };
+export const internals = { requireDuty, dutiesOf, audit, notify, id, now, loadProtocol, loadRevision, referenceLookup, actorRole, parseContentOrThrow, assertStructure, revisionDerived, revisionSummaries, mapRevisionSummary, mapReference };
 export type { ProtocolRow, RevisionRow };
 
 /* ------------------------------------------------------------------ */

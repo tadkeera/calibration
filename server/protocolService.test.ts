@@ -72,6 +72,9 @@ describe("protocol management service (SQLite store)", () => {
     viewer = await user("viewer@proto.test", "Viewer", "viewer");
     await svc.setDuty(admin, { userId: qa.id, duty: "qa-approver", granted: true, reason: "QA department" });
     await svc.setDuty(admin, { userId: qa.id, duty: "releaser", granted: true, reason: "Document control" });
+    // v4: protocol editing is a granted duty (Authorized Protocol Editor); approval / activation requires the Quality Manager duty.
+    await svc.setDuty(admin, { userId: author.id, duty: "author", granted: true, reason: "Authorized protocol editor" });
+    await svc.setDuty(admin, { userId: qa.id, duty: "quality-manager", granted: true, reason: "Quality Manager" });
     const res = await svc.saveReference(admin, { code: "MAN-1", title: "Manufacturer manual", issuer: "Maker", referenceType: "manufacturer-manual", documentNumber: "36-102", edition: "3.1", revision: "", publicationDate: "2004-02", effectiveDate: "", expiryDate: "", reviewDate: "", sourceUrl: "", documentUrl: "", applicableSection: "Specifications", applicableClause: "", verificationStatus: "verified", notes: "", reason: "Library setup" });
     refId = res.id;
   });

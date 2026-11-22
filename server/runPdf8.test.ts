@@ -45,6 +45,9 @@ describe("8 protocols → calibration runs → PDF reports", () => {
     svc.setProtocolStoreForTests(sqliteProtocolStore);
     const u = await createLocalUser({ email: "author@pdf.test", password: PW, name: "Author", role: "user" });
     author = { id: u.id, name: u.name, role: "user", email: "author@pdf.test" };
+    // v4: protocol editing is a granted duty (Authorized Protocol Editor).
+    const a = await createLocalUser({ email: "admin@pdf.test", password: PW, name: "Admin", role: "admin" });
+    await svc.setDuty({ id: a.id, name: a.name, role: "admin", email: "admin@pdf.test" }, { userId: u.id, duty: "author", granted: true, reason: "Authorized protocol editor" });
     mkdirSync(OUT, { recursive: true });
   });
 

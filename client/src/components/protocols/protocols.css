@@ -122,3 +122,19 @@
 .pm-equipment-list button.is-active { background: #E4EFE7; border-color: #BCD3C4; }
 .pm-equipment-dot { width: 10px; height: 10px; border-radius: 99px; margin-top: 4px; flex: none; }
 .pm-spec-source { font-size: 11px !important; padding: 3px 6px !important; color: #5E6E66; }
+
+/* ---- v4: «البروتوكول» page + protocol-driven New Validation ---- */
+.pm-equipment-grid { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .pm-equipment-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 680px) { .pm-equipment-grid { grid-template-columns: 1fr; } }
+.pm-equipment-card { display: grid; gap: 6px; align-content: start; text-align: start; border: 1px solid #DCE3DB; background: #FFFEFA; border-radius: 14px 5px 14px 5px; padding: 14px; cursor: pointer; color: #173E34; font: inherit; min-height: 118px; transition: border-color .15s, box-shadow .15s; }
+.pm-equipment-card:hover { border-color: #0C5A4C; box-shadow: 0 6px 16px rgba(29,61,51,.08); }
+.pm-equipment-card.is-active { border-color: #0C5A4C; background: #EEF5F0; box-shadow: inset 0 0 0 1px #0C5A4C; }
+.pm-equipment-card strong { font-size: 15px; }
+.pm-equipment-card .pm-card-index { font-size: 11px; color: #7A8A82; font-weight: 700; }
+.pm-alert-danger { background: #F8E6E3; color: #8E2F24; border: 1px solid #EBC5BF; }
+.pm-graph { border: 1px solid #E1E7E0; border-radius: 10px; padding: 10px; background: #fff; min-width: 0; }
+.pm-graph h4 { margin: 0 0 6px; font-size: 13px; }
+.pm-graph-grid { align-items: start; }
+.pm-meta { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px 14px; font-size: 13px; }
+.pm-meta span { color: #63766D; display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; }

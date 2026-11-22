@@ -51,6 +51,9 @@ describe("calibration workflow v3 (SQLite store)", () => {
     viewer = await user("viewer@wf.test", "Viewer", "viewer");
     await svc.setDuty(admin, { userId: qa.id, duty: "qa-approver", granted: true, reason: "QA department" });
     await svc.setDuty(admin, { userId: qa.id, duty: "releaser", granted: true, reason: "Document control" });
+    // v4: protocol editing is a granted duty (Authorized Protocol Editor); approval / activation requires the Quality Manager duty.
+    await svc.setDuty(admin, { userId: author.id, duty: "author", granted: true, reason: "Authorized protocol editor" });
+    await svc.setDuty(admin, { userId: qa.id, duty: "quality-manager", granted: true, reason: "Quality Manager" });
   });
 
   afterAll(() => {

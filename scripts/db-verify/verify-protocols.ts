@@ -21,6 +21,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as svc from "../../server/protocols/service";
 import * as wf from "../../server/protocols/workflowService";
+import * as val from "../../server/protocols/validationService";
 import { toRpcPayload } from "../../server/protocols/supabaseStore";
 import { PROTOCOL_TABLES, PROTOCOL_WORKFLOW_TABLE_NAMES, ProtocolConflictError, assertColumns, type ProtocolStore, type ProtocolTable, type Row, type SelectOptions } from "../../server/protocols/tables";
 
@@ -158,6 +159,9 @@ try {
   ok("moduleStatus ok", (await svc.moduleStatus()).ok);
   await svc.setDuty(users.admin, { userId: users.qa.id, duty: "qa-approver", granted: true, reason: "QA department" });
   await svc.setDuty(users.admin, { userId: users.qa.id, duty: "releaser", granted: true, reason: "Document control" });
+  // v4 roles: protocol editing is a granted duty (Authorized Protocol Editor); approval needs the Quality Manager duty.
+  await svc.setDuty(users.admin, { userId: users.author.id, duty: "author", granted: true, reason: "Authorized Protocol Editor" });
+  await svc.setDuty(users.admin, { userId: users.qa.id, duty: "quality-manager", granted: true, reason: "Quality Manager" });
   ok("duty assignment persisted", (await svc.getMe(users.qa)).duties.includes("qa-approver"));
   const ref = await svc.saveReference(users.admin, { code: "MAN-1", title: "Manufacturer manual", issuer: "Maker", referenceType: "manufacturer-manual", documentNumber: "36-102", edition: "3.1", revision: "", publicationDate: "2004-02", effectiveDate: "", expiryDate: "", reviewDate: "", sourceUrl: "", documentUrl: "", applicableSection: "Specifications", applicableClause: "", verificationStatus: "verified", notes: "", reason: "Library setup" });
   const content = {
@@ -310,6 +314,72 @@ try {
   ok("existing validation records unchanged", JSON.stringify(historyBefore) === JSON.stringify(historyAfter));
   const audit = await q(`select count(*)::int n from protocol_audit_events`);
   ok("audit trail populated", audit.rows[0].n > 10, String(audit.rows[0].n));
+
+  // ---- v4: backup-first reset of experimental protocol data (server/sql/protocol_v4_simplified_approval_reset.sql) ----
+  const RESET_TABLES = ["protocols", "protocol_revisions", "protocol_references", "protocol_approvals", "protocol_review_comments", "protocol_executions", "protocol_execution_reviews", "protocol_notifications", "protocol_notification_reads", "protocol_templates", "protocol_attachments", "protocol_runs", "protocol_run_snapshots"];
+  const count = async (t: string) => (await q(`select count(*)::int n from ${t}`)).rows[0].n as number;
+  const KEPT = ["app_users", "protocol_duty_assignments", "instrument_profiles", "protocol_equipment_specs", "protocol_equipment_changes"];
+  const keptBefore = Object.fromEntries(await Promise.all(KEPT.map(async t => [t, await count(t)] as const)));
+  const dataBefore = Object.fromEntries(await Promise.all(RESET_TABLES.map(async t => [t, await count(t)] as const)));
+  const auditBefore = await count("protocol_audit_events");
+  ok("v4: experimental protocol data present before the reset", dataBefore.protocols > 0 && dataBefore.protocol_revisions > 0 && dataBefore.protocol_runs > 0, JSON.stringify(dataBefore));
+  const resetSql = read("protocol_v4_simplified_approval_reset.sql");
+  await q(resetSql);
+  const backup = Object.fromEntries(await Promise.all(RESET_TABLES.map(async t => [t, await count(`protocol_backup_20261118.${t}`)] as const)));
+  ok("v4 reset: backup schema holds a full copy of every protocol table", isDeepStrictEqual(backup, dataBefore), JSON.stringify(backup));
+  const after = Object.fromEntries(await Promise.all(RESET_TABLES.map(async t => [t, await count(t)] as const)));
+  ok("v4 reset: old protocols, revisions (tests/criteria/formulas), references, runs and executions removed", Object.values(after).every(n => n === 0), JSON.stringify(after));
+  const keptAfter = Object.fromEntries(await Promise.all(KEPT.map(async t => [t, await count(t)] as const)));
+  ok("v4 reset: users, roles/duties and equipment master untouched", isDeepStrictEqual(keptBefore, keptAfter), JSON.stringify(keptAfter));
+  ok("v4 reset: legacy validation history untouched", JSON.stringify(historyBefore) === JSON.stringify((await q(`select id, result_data::text, created_at from validation_records order by id`)).rows));
+  ok("v4 reset: audit trail kept and reset event appended", (await count("protocol_audit_events")) === auditBefore + 1 && (await count(`protocol_audit_events where action = 'protocol-data.reset'`)) === 1);
+  const trig = await q(`select count(*)::int n from pg_trigger t join pg_class c on c.oid = t.tgrelid where c.relname = any($1) and not t.tgisinternal and t.tgenabled = 'D'`, [RESET_TABLES]);
+  ok("v4 reset: guard triggers re-enabled", trig.rows[0].n === 0, String(trig.rows[0].n));
+  await q(resetSql);
+  ok("v4 reset: re-running keeps the original backup", (await count("protocol_backup_20261118.protocols")) === dataBefore.protocols);
+  ok("v4 reset: backup schema not readable by anon/authenticated", !(await q(`select has_schema_privilege('anon','protocol_backup_20261118','USAGE') v`)).rows[0].v && !(await q(`select has_schema_privilege('authenticated','protocol_backup_20261118','USAGE') v`)).rows[0].v);
+  ok("v4: module status still ok after reset", await svc.moduleStatus().then(st => st.ok && st.workflowOk));
+
+  // ---- v4: Protocol page + simplified Quality Manager approval + protocol-driven validation on PostgreSQL ----
+  const board = await val.protocolBoard(users.tech);
+  ok("PG v4: nine equipment cards, no protocols after reset", board.cards.length === 9 && board.cards.every(c => !c.protocol));
+  await rejects("PG v4: normal user cannot create a protocol", () => val.createProtocolForEquipment(users.tech, { instrumentKey: "polarimeter", number: "CAL-QC-POL-PG4", title: "Polarimeter PG v4", reason: "x" }), /requires one of the protocol duties/);
+  const p4 = await val.createProtocolForEquipment(users.author, { instrumentKey: "polarimeter", number: "CAL-QC-POL-PG4", title: "Polarimeter PG v4", reason: "Entered manually" });
+  const d4 = await svc.getRevision(users.author, p4.revisionId);
+  const vf = { verificationStatus: "verified", verificationEvidence: "Checked against the controlled source (PG fixture)" };
+  const content4 = {
+    ...d4.revision.content,
+    stages: ["Calibration"],
+    narrative: { ...d4.revision.content.narrative, purpose: "Polarimeter calibration (PG fixture)", scope: "QC-I-029 (PG fixture)" },
+    sections: [{ key: "tests", title: "Tests", tests: [
+      { key: "repeat", name: "Repeatability", dataType: "series", unit: "°", readingsRequired: 10, calculations: [{ key: "mean", label: "Mean", kind: "mean", unit: "°" }, { key: "rsd", label: "RSD", kind: "rsd", unit: "%" }], criteria: [{ key: "rsd_lim", parameter: "rsd", requirement: "RSD <= 0.05 %", comparison: "<=", upper: 0.05, unit: "%", sourceClass: "institutional", justification: "Laboratory limit (PG fixture)", ...vf }], graphs: [{ type: "repeatability" }] },
+    ] }],
+  };
+  await svc.saveDraft(users.author, { revisionId: p4.revisionId, expectedRowVersion: d4.revision.rowVersion, content: content4, reason: "Tests entered" });
+  const rv4 = async (id: string) => (await svc.getRevision(users.admin, id)).revision.rowVersion;
+  const draftVersion = await rv4(p4.revisionId);
+  await rejects("PG v4: editor cannot approve (Quality Manager only)", () => svc.transition(users.author, { revisionId: p4.revisionId, expectedRowVersion: draftVersion, action: "approve", password: SIGN }), /quality-manager|not permitted|requires/i);
+  await rejects("PG v4: normal user cannot approve", () => svc.transition(users.tech, { revisionId: p4.revisionId, expectedRowVersion: draftVersion, action: "approve", password: SIGN }), /quality-manager|not permitted|requires/i);
+  await rejects("PG v4: approval needs the password signature", () => svc.transition(users.qa, { revisionId: p4.revisionId, expectedRowVersion: draftVersion, action: "approve" }), /re-enter your password/);
+  ok("PG v4: no approved protocol → New Validation unavailable", (await val.activeProtocolForEquipment("polarimeter")).available === false);
+  await svc.transition(users.qa, { revisionId: p4.revisionId, expectedRowVersion: await rv4(p4.revisionId), action: "approve", password: SIGN });
+  const a4 = await svc.getRevision(users.admin, p4.revisionId);
+  ok("PG v4: Draft → Approved (active) in one Quality Manager step", a4.revision.status === "released" && a4.revision.locked && a4.revision.qaApproverName === "qa" && a4.approvals.some(x => x.action === "approve"));
+  const readings4 = { repeat: { readings: [17.004, 17.006, 17.005, 17.003, 17.007, 17.005, 17.004, 17.006, 17.005, 17.005] } };
+  const rec4 = await val.recordValidation(users.tech, { instrumentKey: "polarimeter", revisionId: p4.revisionId, measurements: readings4 });
+  const got4 = await val.getValidation(rec4.runId);
+  ok("PG v4: validation stored with protocol revision, snapshot, results and graph data", got4.revisionNumber === 1 && got4.contentHash === a4.revision.contentHash && got4.evaluation.overall === "PASS" && (got4.evaluation.tests[0].graphs?.length ?? 0) === 1 && got4.equipment.identity.instrumentId === "QC-I-029");
+  const e4 = await val.editProtocol(users.author, { protocolId: p4.protocolId, reason: "Tighten the RSD limit" });
+  ok("PG v4: Edit creates a new Draft; the approved revision stays active", e4.created && e4.revisionNumber === 2 && (await svc.getRevision(users.admin, p4.revisionId)).revision.status === "released");
+  const d5 = await svc.getRevision(users.author, e4.revisionId);
+  const c5 = structuredClone(d5.revision.content);
+  c5.sections[0].tests[0].criteria[0].upper = 0.0001;
+  await svc.saveDraft(users.author, { revisionId: e4.revisionId, expectedRowVersion: d5.revision.rowVersion, content: c5, reason: "RSD limit changed" });
+  await svc.transition(users.qa, { revisionId: e4.revisionId, expectedRowVersion: await rv4(e4.revisionId), action: "approve", password: SIGN });
+  ok("PG v4: approving Rev 2 supersedes Rev 1 (single active revision)", (await svc.getRevision(users.admin, p4.revisionId)).revision.status === "superseded" && (await svc.getRevision(users.admin, e4.revisionId)).revision.status === "released");
+  const again4 = await val.getValidation(rec4.runId);
+  ok("PG v4: historical validation unchanged by the new approved revision", again4.revisionNumber === 1 && isDeepStrictEqual(again4.evaluation, got4.evaluation) && again4.revisionStatusNow === "superseded");
+  await rejects("DB v4: approved revision content immutable", () => q(`update protocol_revisions set content = '{}'::jsonb where id = $1`, [p4.revisionId]), /immutable|editable/);
 
   // v3 rollback: drops only the 4 v3 tables (+ guards); v2 data survive; re-applying the migration restores v3.
   const coreBefore = (await q(`select count(*)::int n from protocols`)).rows[0].n;

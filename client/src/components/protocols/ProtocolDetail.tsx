@@ -185,6 +185,7 @@ export function ContentView({ content, refName }: { content: ProtocolContent; re
               {t.objective && <div><span className="pm-muted">Objective:</span> {t.objective}</div>}
               {t.procedure && <div style={{ whiteSpace: "pre-wrap" }}><span className="pm-muted">Procedure:</span> {t.procedure}</div>}
               {t.calculations.length > 0 && <div><span className="pm-muted">Calculations:</span> {t.calculations.map(c => `${c.label || c.key} (${c.kind === "custom" ? c.formula : c.kind})`).join("; ")}</div>}
+              {(t.graphs?.length ?? 0) > 0 && <div><span className="pm-muted">Graphs:</span> {t.graphs.map(g => g.title || g.type).join("; ")}</div>}
               {t.criteria.map(c => (
                 <div key={c.key} className="pm-card is-criterion">
                   <div className="pm-card-head"><strong>{c.parameter}{c.levelKey ? ` [${c.levelKey}]` : ""}: {limitText(c)}</strong><PendingTag verified={c.verificationStatus === "verified"} /></div>

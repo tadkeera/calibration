@@ -16,6 +16,7 @@ import {
   type CalcVariables,
 } from "./calc";
 import type { Calculation, Criterion, ProtocolContent, ProtocolTest } from "./model";
+import { buildTestGraphs, type GraphData } from "./graphs";
 
 export const EXECUTION_STATUSES = ["PASS", "FAIL", "INCOMPLETE", "NOT APPLICABLE", "UNDER REVIEW"] as const;
 export type ExecutionStatus = (typeof EXECUTION_STATUSES)[number];
@@ -71,6 +72,8 @@ export type TestResult = {
   notes: string[];
   calculations: CalcResult[];
   criteria: CriterionResult[];
+  /** Graphs configured for the test, built from the actual readings (empty when not configured / data insufficient). */
+  graphs: GraphData[];
 };
 export type ExecutionEvaluation = {
   engineVersion: string;
@@ -158,6 +161,7 @@ function evaluateTest(sectionKey: string, test: ProtocolTest, m: TestMeasurement
     notes: [],
     calculations: [],
     criteria: [],
+    graphs: [],
   };
   // Dependencies (explicitly configured, evaluated in protocol order).
   if (test.dependency.type !== "independent" && test.dependency.testKey) {
@@ -326,6 +330,17 @@ function evaluateTest(sectionKey: string, test: ProtocolTest, m: TestMeasurement
       continue;
     }
     record(c.levelKey, null, "INCOMPLETE", `Parameter "${c.parameter}" is not a configured calculation, field or "reading".`);
+  }
+
+  // Graphs (only those configured for the test, from the actual readings).
+  try {
+    result.graphs = buildTestGraphs(test, {
+      readings: base,
+      reference: testReference,
+      levels: test.levels.map(l => ({ key: l.key, label: l.label, reference: levelReference(l.key, l.nominal), values: levelValues.get(l.key) ?? [] })),
+    });
+  } catch {
+    result.graphs = [];
   }
 
   // Aggregate.

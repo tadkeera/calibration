@@ -87,7 +87,7 @@ export function RecordHistory({
   isAuthenticated: boolean;
   isAdmin: boolean;
   currentUserId: number;
-  onStartRetest: (recordId: number, reason: string) => void;
+  onStartRetest?: (recordId: number, reason: string) => void;
 }) {
   const t = copy[language];
   const [selectedId, setSelectedId] = useState<number | null>(null);

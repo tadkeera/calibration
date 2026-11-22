@@ -387,7 +387,7 @@ export async function runCatalog() {
   return out;
 }
 
-function snapshotOf(e: EquipmentView): EquipmentSnapshot {
+export function snapshotOf(e: EquipmentView): EquipmentSnapshot {
   return { instrumentKey: e.instrumentKey, equipmentType: e.equipmentType, identity: e.identity, specs: e.specs, status: e.status, specsRowVersion: e.specsRowVersion, capturedAt: now() };
 }
 
@@ -600,21 +600,16 @@ async function seedPackageReferences(actor: Actor) {
   return { map, referencesCreated };
 }
 
-export type ImportLine = { protocolNumber: string; status: "created" | "skipped-existing" | "failed"; protocolId: string | null; revisionId: string | null; tests: number; linkedEquipment: string | null; notes: string[] };
-
 /**
- * Idempotent by protocol number: existing protocols are NEVER overwritten
- * (reported as skipped). Every protocol is created as a DRAFT with all
- * criteria PENDING TECHNICAL VERIFICATION. References are seeded as
- * pending-verification. Creates the analytical-balance equipment record
- * (CAL-QC-BAL-001 Rev.03 §4) when it is not registered yet.
+ * Registers equipment defined by the supplied package (e.g. Analytical Balance
+ * QC-I-074) ONLY when it is not registered yet — existing records (matched by
+ * key or equipment ID) are never modified or duplicated.
  */
-export async function importCalibrationPackage(actor: Actor) {
-  await requireDuty(actor, "author");
+export async function registerPackageEquipment(actor: Actor) {
   const status = await protocolStore().schemaStatus();
   const notes: string[] = [];
   // 1. Equipment defined by the package but not yet registered.
-  let registry = await equipmentRegistry();
+  const registry = await equipmentRegistry();
   for (const eq of PACKAGE_NEW_EQUIPMENT) {
     const exists = registry.find(e => e.instrumentKey === eq.instrumentKey || e.instrumentId.trim().toUpperCase() === eq.instrumentId);
     if (exists) {
@@ -632,7 +627,23 @@ export async function importCalibrationPackage(actor: Actor) {
       notes.push(`${eq.instrumentId}: identity registered; specifications not stored because the v3 workflow tables are not installed yet (re-run the migration, then enter them on the equipment page).`);
     }
   }
-  registry = await equipmentRegistry();
+  return { notes };
+}
+
+export type ImportLine = { protocolNumber: string; status: "created" | "skipped-existing" | "failed"; protocolId: string | null; revisionId: string | null; tests: number; linkedEquipment: string | null; notes: string[] };
+
+/**
+ * Idempotent by protocol number: existing protocols are NEVER overwritten
+ * (reported as skipped). Every protocol is created as a DRAFT with all
+ * criteria PENDING TECHNICAL VERIFICATION. References are seeded as
+ * pending-verification. Creates the analytical-balance equipment record
+ * (CAL-QC-BAL-001 Rev.03 §4) when it is not registered yet.
+ */
+export async function importCalibrationPackage(actor: Actor) {
+  await requireDuty(actor, "author");
+  const status = await protocolStore().schemaStatus();
+  const notes: string[] = (await registerPackageEquipment(actor)).notes;
+  const registry = await equipmentRegistry();
 
   // 2. References (pending verification).
   const { map, referencesCreated } = await seedPackageReferences(actor);

@@ -33,7 +33,8 @@ export function PolarimeterWorkflowPanel({
   record: RecordItem;
   isAdmin: boolean;
   currentUserId: number;
-  onStartRetest: RetestStarter;
+  /** Omitted since v4: the legacy hard-coded form is retired, so legacy retests are no longer started here. */
+  onStartRetest?: RetestStarter;
 }) {
   const utils = trpc.useUtils();
   const reviews = trpc.records.technicalReviews.useQuery({ id: record.id });
@@ -271,7 +272,7 @@ export function PolarimeterWorkflowPanel({
         </section>
       )}
 
-      {record.resultStatus === "fail" && (
+      {record.resultStatus === "fail" && onStartRetest && (
         <section className="polarimeter-record-workflow-card">
           <h4>
             <RotateCcw size={17} /> Controlled retest
